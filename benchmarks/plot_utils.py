@@ -52,6 +52,7 @@ TIER_COLORS = {
     "npu_only":     "#1f77b4",  # blue
     "npu_cpu":      "#2ca02c",  # green
     "npu_cxl":      "#ff7f0e",  # orange
+    "npu_cxl_cpu":  "#e377c2",  # pink  (3-tier: NPU→CXL→CPU)
     "npu_cxl_fast": "#d62728",  # red
     "npu_cxl_slow": "#9467bd",  # purple
 }
@@ -88,6 +89,7 @@ TIER_LABELS = {
     "npu_only":     "NPU Only",
     "npu_cpu":      "NPU + CPU",
     "npu_cxl":      "NPU + CXL",
+    "npu_cxl_cpu":  "NPU → CXL → CPU",
     "npu_cxl_fast": "NPU + CXL (Fast)",
     "npu_cxl_slow": "NPU + CXL (Slow)",
 }

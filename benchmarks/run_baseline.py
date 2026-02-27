@@ -68,18 +68,23 @@ CXL_SWEEP = [
 # ─────────────────────── Phase definitions ────────────────────────────
 
 def get_phase_a_experiments():
-    """KV eviction pressure: npu_cpu config (18GB) × 5 workloads, prefix off."""
+    """KV eviction pressure: npu_cpu and npu_cxl_cpu configs (18GB) × 5 workloads, prefix off."""
     experiments = []
     workloads = ["sharegpt_100", "sharegpt_300", "fixed_256", "prefix_stress", "pulse_prefix"]
-    for wl in workloads:
-        experiments.append({
-            "name": f"phaseA/npu_cpu/{wl}",
-            "cluster": "cluster_config/tiered_kv_npu_cpu.json",
-            "workload": WORKLOADS[wl],
-            "prefix_caching": False,
-            "prefix_storage": "None",
-            "block_size": 16,
-        })
+    configs = [
+        ("npu_cpu",     "cluster_config/tiered_kv_npu_cpu.json"),
+        ("npu_cxl_cpu", "cluster_config/tiered_kv_npu_cxl_cpu.json"),
+    ]
+    for cfg_name, cfg_path in configs:
+        for wl in workloads:
+            experiments.append({
+                "name": f"phaseA/{cfg_name}/{wl}",
+                "cluster": cfg_path,
+                "workload": WORKLOADS[wl],
+                "prefix_caching": False,
+                "prefix_storage": "None",
+                "block_size": 16,
+            })
     return experiments
 
 

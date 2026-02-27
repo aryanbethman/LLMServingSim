@@ -238,9 +238,13 @@ def plot_memory_timeseries(ts_df, output_dir, phase):
             npu_used_gb = inst_data["npu_used_gb"].values if "npu_used_gb" in inst_data else np.zeros_like(time_s)
             cpu_used_gb = inst_data["cpu_used_gb"].values if "cpu_used_gb" in inst_data else np.zeros_like(time_s)
 
+            cxl_used_gb = inst_data["cxl_used_gb"].values if "cxl_used_gb" in inst_data else np.zeros_like(time_s)
+
             ax.fill_between(time_s, 0, npu_used_gb, 
                           alpha=0.7, color=MEM_TIER_COLORS["npu_kv"], label="NPU Used")
-            ax.fill_between(time_s, npu_used_gb, npu_used_gb + cpu_used_gb,
+            ax.fill_between(time_s, npu_used_gb, npu_used_gb + cxl_used_gb,
+                          alpha=0.7, color=MEM_TIER_COLORS["cxl_evicted"], label="CXL Evicted KV")
+            ax.fill_between(time_s, npu_used_gb + cxl_used_gb, npu_used_gb + cxl_used_gb + cpu_used_gb,
                           alpha=0.7, color=MEM_TIER_COLORS["cpu_evicted"], label="CPU Evicted KV")
             
             if npu_total_gb.any():
@@ -436,19 +440,26 @@ def plot_migration_bars(tier_stats_df, output_dir, phase):
         return
 
     # Aggregate across instances
-    agg = tier_stats_df.groupby(["config", "workload"]).agg({
+    agg_cols = {
         'evict_npu_to_cpu_bytes': 'sum',
         'load_cpu_to_npu_bytes': 'sum',
         'evict_npu_prefix_bytes': 'sum',
         'evict_storage_prefix_bytes': 'sum',
         'prefix_load_storage_to_npu_bytes': 'sum',
         'storage_cache_evicted_req_bytes': 'sum',
-    }).reset_index()
+    }
+    # Add CXL columns if present
+    for col in ['evict_npu_to_cxl_bytes', 'load_cxl_to_npu_bytes']:
+        if col in tier_stats_df.columns:
+            agg_cols[col] = 'sum'
+    agg = tier_stats_df.groupby(["config", "workload"]).agg(agg_cols).reset_index()
 
     if agg.empty:
         return
 
     migration_types = [
+        ('evict_npu_to_cxl_bytes', 'NPU→CXL Evict', '#e377c2'),
+        ('load_cxl_to_npu_bytes', 'CXL→NPU Reload', '#bcbd22'),
         ('evict_npu_to_cpu_bytes', 'NPU→CPU Evict', '#1f77b4'),
         ('load_cpu_to_npu_bytes', 'CPU→NPU Reload', '#2ca02c'),
         ('evict_npu_prefix_bytes', 'NPU Prefix Evict', '#ff7f0e'),
@@ -489,8 +500,11 @@ def plot_migration_over_time(ts_df, output_dir, phase):
 
     evict_col = "evict_npu_to_cpu_bytes_total"
     load_col = "load_cpu_to_npu_bytes_total"
+    evict_cxl_col = "evict_npu_to_cxl_bytes_total"
+    load_cxl_col = "load_cxl_to_npu_bytes_total"
     
-    if evict_col not in ts_df.columns:
+    has_any_col = any(c in ts_df.columns for c in [evict_col, evict_cxl_col])
+    if not has_any_col:
         return
 
     for wl in ts_df["workload"].unique():
@@ -503,9 +517,11 @@ def plot_migration_over_time(ts_df, output_dir, phase):
             if cfg_data.empty:
                 continue
 
-            evict_mb = cfg_data[evict_col].values * BYTES_TO_MB
+            evict_mb = cfg_data[evict_col].values * BYTES_TO_MB if evict_col in cfg_data.columns else np.zeros(len(cfg_data))
             load_mb = cfg_data[load_col].values * BYTES_TO_MB if load_col in cfg_data.columns else np.zeros_like(evict_mb)
-            total_mb = evict_mb + load_mb
+            evict_cxl_mb = cfg_data[evict_cxl_col].values * BYTES_TO_MB if evict_cxl_col in cfg_data.columns else np.zeros_like(evict_mb)
+            load_cxl_mb = cfg_data[load_cxl_col].values * BYTES_TO_MB if load_cxl_col in cfg_data.columns else np.zeros_like(evict_mb)
+            total_mb = evict_mb + load_mb + evict_cxl_mb + load_cxl_mb
 
             ax.plot(cfg_data["sim_time_s"].values, total_mb,
                    label=get_label(cfg), color=get_color(cfg), linewidth=1.5)
@@ -583,17 +599,22 @@ def plot_eviction_latency_correlation(results_df, tier_stats_df, output_dir, pha
         ts_sub = tier_stats_df[(tier_stats_df["config"] == cfg) & (tier_stats_df["workload"] == wl)]
         if ts_sub.empty:
             continue
-        evict_mb = ts_sub["evict_npu_to_cpu_bytes"].sum() / (1024 * 1024)
-        reload_mb = ts_sub["load_cpu_to_npu_bytes"].sum() / (1024 * 1024)
-        total_mig = evict_mb + reload_mb
+        evict_cpu_mb = ts_sub["evict_npu_to_cpu_bytes"].sum() / (1024 * 1024) if "evict_npu_to_cpu_bytes" in ts_sub.columns else 0
+        reload_cpu_mb = ts_sub["load_cpu_to_npu_bytes"].sum() / (1024 * 1024) if "load_cpu_to_npu_bytes" in ts_sub.columns else 0
+        evict_cxl_mb = ts_sub["evict_npu_to_cxl_bytes"].sum() / (1024 * 1024) if "evict_npu_to_cxl_bytes" in ts_sub.columns else 0
+        reload_cxl_mb = ts_sub["load_cxl_to_npu_bytes"].sum() / (1024 * 1024) if "load_cxl_to_npu_bytes" in ts_sub.columns else 0
+        total_mig = evict_cpu_mb + reload_cpu_mb + evict_cxl_mb + reload_cxl_mb
         records.append({
             "config": cfg, "workload": wl,
             "total_migration_mb": total_mig,
-            "evict_mb": evict_mb,
-            "reload_mb": reload_mb,
+            "evict_cpu_mb": evict_cpu_mb,
+            "evict_cxl_mb": evict_cxl_mb,
+            "reload_cpu_mb": reload_cpu_mb,
+            "reload_cxl_mb": reload_cxl_mb,
             "mean_TPOT_ms": grp["TPOT_ms"].mean(),
             "mean_TTFT_ms": grp["TTFT_ms"].mean(),
-            "num_evictions": ts_sub["evict_npu_to_cpu_count"].sum(),
+            "num_evictions": (ts_sub.get("evict_npu_to_cpu_count", pd.Series([0])).sum() +
+                              ts_sub.get("evict_npu_to_cxl_count", pd.Series([0])).sum()),
             "num_requests": len(grp),
         })
 
@@ -657,14 +678,22 @@ def plot_migration_breakdown(tier_stats_df, output_dir, phase):
     if tier_stats_df.empty:
         return
 
-    agg = tier_stats_df.groupby(["config", "workload"]).agg({
+    agg_cols = {
         'evict_npu_to_cpu_bytes': 'sum',
         'load_cpu_to_npu_bytes': 'sum',
         'evict_npu_to_cpu_count': 'sum',
         'load_cpu_to_npu_count': 'sum',
-    }).reset_index()
+    }
+    for col in ['evict_npu_to_cxl_bytes', 'load_cxl_to_npu_bytes', 'evict_npu_to_cxl_count', 'load_cxl_to_npu_count']:
+        if col in tier_stats_df.columns:
+            agg_cols[col] = 'sum'
+    agg = tier_stats_df.groupby(["config", "workload"]).agg(agg_cols).reset_index()
 
-    agg = agg[agg['evict_npu_to_cpu_bytes'] + agg['load_cpu_to_npu_bytes'] > 0]
+    # Filter: at least some migration happened
+    total_bytes = agg.get('evict_npu_to_cpu_bytes', 0) + agg.get('load_cpu_to_npu_bytes', 0)
+    if 'evict_npu_to_cxl_bytes' in agg.columns:
+        total_bytes = total_bytes + agg['evict_npu_to_cxl_bytes'] + agg.get('load_cxl_to_npu_bytes', 0)
+    agg = agg[total_bytes > 0]
     if agg.empty:
         return
 
@@ -674,30 +703,41 @@ def plot_migration_breakdown(tier_stats_df, output_dir, phase):
 
     fig, axes = plt.subplots(1, 2, figsize=(max(12, len(labels) * 1.5), 6))
 
-    w = 0.35
-    evict_mb = agg['evict_npu_to_cpu_bytes'].values / (1024 * 1024)
-    reload_mb = agg['load_cpu_to_npu_bytes'].values / (1024 * 1024)
-
+    # Volume subplot (stacked bars per direction)
     ax = axes[0]
-    ax.bar(x - w / 2, evict_mb, w, label="NPU\u2192CPU Evict", color="#d62728", alpha=0.8)
-    ax.bar(x + w / 2, reload_mb, w, label="CPU\u2192NPU Reload", color="#2ca02c", alpha=0.8)
+    w = 0.35
+    evict_cpu_mb = agg['evict_npu_to_cpu_bytes'].values / (1024 * 1024)
+    reload_cpu_mb = agg['load_cpu_to_npu_bytes'].values / (1024 * 1024)
+    evict_cxl_mb = agg['evict_npu_to_cxl_bytes'].values / (1024 * 1024) if 'evict_npu_to_cxl_bytes' in agg.columns else np.zeros(len(agg))
+    reload_cxl_mb = agg['load_cxl_to_npu_bytes'].values / (1024 * 1024) if 'load_cxl_to_npu_bytes' in agg.columns else np.zeros(len(agg))
+
+    ax.bar(x - w / 2, evict_cxl_mb, w, label="NPU\u2192CXL Evict", color="#e377c2", alpha=0.8)
+    ax.bar(x - w / 2, evict_cpu_mb, w, bottom=evict_cxl_mb, label="NPU\u2192CPU Evict", color="#d62728", alpha=0.8)
+    ax.bar(x + w / 2, reload_cxl_mb, w, label="CXL\u2192NPU Reload", color="#bcbd22", alpha=0.8)
+    ax.bar(x + w / 2, reload_cpu_mb, w, bottom=reload_cxl_mb, label="CPU\u2192NPU Reload", color="#2ca02c", alpha=0.8)
     ax.set_ylabel("Data Volume (MB)")
     ax.set_title("Migration Volume: Evict vs Reload")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
-    ax.legend()
+    ax.legend(fontsize=7)
     ax.grid(axis='y', alpha=0.3)
 
+    # Count subplot
     ax = axes[1]
-    evict_cnt = agg['evict_npu_to_cpu_count'].values
-    reload_cnt = agg['load_cpu_to_npu_count'].values
-    ax.bar(x - w / 2, evict_cnt, w, label="Evictions", color="#d62728", alpha=0.8)
-    ax.bar(x + w / 2, reload_cnt, w, label="Reloads", color="#2ca02c", alpha=0.8)
+    evict_cpu_cnt = agg['evict_npu_to_cpu_count'].values
+    reload_cpu_cnt = agg['load_cpu_to_npu_count'].values
+    evict_cxl_cnt = agg['evict_npu_to_cxl_count'].values if 'evict_npu_to_cxl_count' in agg.columns else np.zeros(len(agg))
+    reload_cxl_cnt = agg['load_cxl_to_npu_count'].values if 'load_cxl_to_npu_count' in agg.columns else np.zeros(len(agg))
+
+    ax.bar(x - w / 2, evict_cxl_cnt, w, label="NPU\u2192CXL Evict", color="#e377c2", alpha=0.8)
+    ax.bar(x - w / 2, evict_cpu_cnt, w, bottom=evict_cxl_cnt, label="NPU\u2192CPU Evict", color="#d62728", alpha=0.8)
+    ax.bar(x + w / 2, reload_cxl_cnt, w, label="CXL\u2192NPU Reload", color="#bcbd22", alpha=0.8)
+    ax.bar(x + w / 2, reload_cpu_cnt, w, bottom=reload_cxl_cnt, label="CPU\u2192NPU Reload", color="#2ca02c", alpha=0.8)
     ax.set_ylabel("Operation Count")
     ax.set_title("Migration Ops: Evict vs Reload Count")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
-    ax.legend()
+    ax.legend(fontsize=7)
     ax.grid(axis='y', alpha=0.3)
 
     fig.suptitle(f"Migration Breakdown — {phase}", fontsize=14)
