@@ -166,11 +166,34 @@ def get_phase_d_experiments():
     return experiments
 
 
+def get_phase_e_experiments():
+    """Llama-70B baselines on 4 H100 GPUs: 3 tier configs × 5 workloads."""
+    experiments = []
+    workloads = ["sharegpt_100", "sharegpt_300", "fixed_256", "prefix_stress", "pulse_prefix"]
+    configs = [
+        ("70b_npu_only",    "cluster_config/tiered_kv_70b_npu_only.json"),
+        ("70b_npu_cpu",     "cluster_config/tiered_kv_70b_npu_cpu.json"),
+        ("70b_npu_cxl_cpu", "cluster_config/tiered_kv_70b_npu_cxl_cpu.json"),
+    ]
+    for cfg_name, cfg_path in configs:
+        for wl in workloads:
+            experiments.append({
+                "name": f"phaseE/{cfg_name}/{wl}",
+                "cluster": cfg_path,
+                "workload": WORKLOADS[wl],
+                "prefix_caching": False,
+                "prefix_storage": "None",
+                "block_size": 16,
+            })
+    return experiments
+
+
 PHASES = {
     "A": get_phase_a_experiments,
     "B": get_phase_b_experiments,
     "C": get_phase_c_experiments,
     "D": get_phase_d_experiments,
+    "E": get_phase_e_experiments,
 }
 
 # ─────────────────────── Runner ───────────────────────────────────────
@@ -238,7 +261,7 @@ def run_experiment(exp, dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="Run tiered KV cache baseline experiments")
     parser.add_argument("--phase", type=str, choices=list(PHASES.keys()) + ["all"], default="A",
-                       help="Which experimental phase to run (A/B/C/D/all)")
+                       help="Which experimental phase to run (A/B/C/D/E/all)")
     parser.add_argument("--dry-run", action="store_true",
                        help="Print experiments without running them")
     parser.add_argument("--filter", type=str, default=None,
