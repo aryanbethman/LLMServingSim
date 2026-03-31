@@ -33,19 +33,19 @@
 [1m[96m▶ Starting simulation...
 [0m[0m
 [0.5s] [94mAvg prompt throughput: 216.0 tokens/s,[0m [94mAvg generation throughput: 248.0 tokens/s[0m
-        ├─Running Instance[0]: 10 reqs, Total # 4 NPUs, Each NPU Memory Usage 33668.27 MB (82.198 % Used)
+        ├─Running Instance[0]: 10 reqs, Total # 4 NPUs, Each NPU Memory Usage 33668.27 MB (96.703 % Used)
         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
 [1.0s] [94mAvg prompt throughput: 366.0 tokens/s,[0m [94mAvg generation throughput: 516.0 tokens/s[0m
-        ├─Running Instance[0]: 13 reqs, Total # 4 NPUs, Each NPU Memory Usage 33687.02 MB (82.244 % Used)
+        ├─Running Instance[0]: 13 reqs, Total # 4 NPUs, Each NPU Memory Usage 33687.02 MB (96.757 % Used)
         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
 [1.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 354.0 tokens/s[0m
-        ├─Running Instance[0]: 4 reqs, Total # 4 NPUs, Each NPU Memory Usage 33668.27 MB (82.198 % Used)
+        ├─Running Instance[0]: 4 reqs, Total # 4 NPUs, Each NPU Memory Usage 33668.27 MB (96.703 % Used)
         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
 [2.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 86.0 tokens/s[0m
-        ├─Running Instance[0]: 1 reqs, Total # 4 NPUs, Each NPU Memory Usage 33654.52 MB (82.164 % Used)
+        ├─Running Instance[0]: 1 reqs, Total # 4 NPUs, Each NPU Memory Usage 33654.52 MB (96.664 % Used)
         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
 [2.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 50.0 tokens/s[0m
-        ├─Running Instance[0]: 1 reqs, Total # 4 NPUs, Each NPU Memory Usage 33655.77 MB (82.167 % Used)
+        ├─Running Instance[0]: 1 reqs, Total # 4 NPUs, Each NPU Memory Usage 33655.77 MB (96.668 % Used)
         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
 --------------------------------------------------------------------------------
 [1m[96m▶ Exiting simulation...
@@ -55,7 +55,7 @@ All Request Has Been Exited
 --------------------------------------------------------------------------------
 [1m[96m▶ Simulation results...
 [0m[0m
-Total simulation time: 0h 0m 9.791s
+Total simulation time: 0h 0m 8.834s
 --------------------------------------------------------------------------------
 [95m                               Throughput Results                               [0m
 --------------------------------------------------------------------------------

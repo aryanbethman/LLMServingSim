@@ -167,13 +167,11 @@ def get_phase_d_experiments():
 
 
 def get_phase_e_experiments():
-    """Llama-70B baselines on 4 H100 GPUs: 3 tier configs × 5 workloads."""
+    """Llama-70B baselines on 4 H100 GPUs with CPU KV offload (prefix caching disabled)."""
     experiments = []
     workloads = ["sharegpt_100", "sharegpt_300", "fixed_256", "prefix_stress", "pulse_prefix"]
     configs = [
-        ("70b_npu_only",    "cluster_config/tiered_kv_70b_npu_only.json"),
-        ("70b_npu_cpu",     "cluster_config/tiered_kv_70b_npu_cpu.json"),
-        ("70b_npu_cxl_cpu", "cluster_config/tiered_kv_70b_npu_cxl_cpu.json"),
+        ("70b_npu_cpu", "cluster_config/tiered_kv_70b_npu_cpu.json"),
     ]
     for cfg_name, cfg_path in configs:
         for wl in workloads:
