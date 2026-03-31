@@ -25,6 +25,7 @@ import sys
 import subprocess
 import argparse
 import itertools
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -194,6 +195,32 @@ PHASES = {
     "E": get_phase_e_experiments,
 }
 
+
+def warn_duplicate_cluster_configs(experiments):
+    """Warn when different cluster config files have identical JSON content."""
+    unique_paths = sorted(set(exp["cluster"] for exp in experiments))
+    content_map = {}
+
+    for rel_path in unique_paths:
+        abs_path = ROOT_DIR / rel_path
+        if not abs_path.exists():
+            continue
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                normalized = json.dumps(json.load(f), sort_keys=True, separators=(",", ":"))
+        except Exception:
+            continue
+        content_map.setdefault(normalized, []).append(rel_path)
+
+    duplicates = [paths for paths in content_map.values() if len(paths) > 1]
+    if not duplicates:
+        return
+
+    print("\n[WARNING] Detected semantically duplicate cluster config files:")
+    for dup_group in duplicates:
+        print(f"  - {dup_group}")
+    print("  These files produce the same cluster behavior unless modified.")
+
 # ─────────────────────── Runner ───────────────────────────────────────
 
 def run_experiment(exp, dry_run=False):
@@ -274,6 +301,8 @@ def main():
 
     if args.filter:
         experiments = [e for e in experiments if args.filter in e["name"]]
+
+    warn_duplicate_cluster_configs(experiments)
 
     print(f"\n{'#'*80}")
     print(f"  Tiered KV Cache Baseline Experiments")

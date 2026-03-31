@@ -594,6 +594,17 @@ def main():
         print(SINGLE_BAR)
         schedulers[i].print_result()
         schedulers[i].print_tier_stats()
+        acc_ok, req_totals, acc_deltas = schedulers[i].validate_tier_accounting()
+        if acc_ok:
+            print("Tier accounting check:                                             PASS")
+        else:
+            print("Tier accounting check:                                             WARNING")
+            print("Request-tier totals and scheduler-tier totals do not match.")
+            print(f"  evict_npu_to_cpu_bytes delta:                                   {acc_deltas['evict_npu_to_cpu_bytes']}")
+            print(f"  evict_npu_to_cxl_bytes delta:                                   {acc_deltas['evict_npu_to_cxl_bytes']}")
+            print(f"  load_cpu_to_npu_bytes delta:                                    {acc_deltas['load_cpu_to_npu_bytes']}")
+            print(f"  load_cxl_to_npu_bytes delta:                                    {acc_deltas['load_cxl_to_npu_bytes']}")
+        print(f"Request-level transition bytes total:                             {req_totals['tier_transition_bytes_total']}")
         print(SINGLE_BAR)
     
     # Important informations about metrics

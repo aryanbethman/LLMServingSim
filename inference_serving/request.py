@@ -11,6 +11,12 @@ class Request:
         self.original_input = input
         self.evict = False
         self.evict_device = None   # Device enum: where KV was evicted to (CXL or CPU)
+        # Per-request tier movement attribution for post-run analysis.
+        self.last_kv_load_tier = "NPU"
+        self.evict_npu_to_cpu_bytes = 0
+        self.evict_npu_to_cxl_bytes = 0
+        self.load_cpu_to_npu_bytes = 0
+        self.load_cxl_to_npu_bytes = 0
         self.end_time = -1
         self.latency = -1
         self.queuing_delay = -1

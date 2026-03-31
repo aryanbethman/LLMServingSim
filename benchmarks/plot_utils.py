@@ -138,7 +138,7 @@ BYTES_TO_GB = 1 / (1024 * 1024 * 1024)
 def load_result_csv(path: str) -> pd.DataFrame:
     """Load a per-request result CSV with proper types.
     
-    Handles both old (12 columns) and new (15 columns) formats.
+    Handles legacy and extended output formats.
     """
     df = pd.read_csv(path)
     # Strip whitespace from column names 
@@ -161,6 +161,35 @@ def load_result_csv(path: str) -> pd.DataFrame:
     for col in ['npu_cache_hit', 'storage_cache_hit', 'prefix_cache_hit']:
         if col not in df.columns:
             df[col] = 0
+
+    if 'tier_reload_source' not in df.columns:
+        df['tier_reload_source'] = 'NPU'
+
+    # Ensure per-request tier transition columns exist (backward compat)
+    tier_cols = [
+        'evict_npu_to_cpu_bytes',
+        'evict_npu_to_cxl_bytes',
+        'load_cpu_to_npu_bytes',
+        'load_cxl_to_npu_bytes',
+        'tier_transition_bytes_total',
+    ]
+    for col in tier_cols:
+        if col not in df.columns:
+            df[col] = 0
+        df[f'{col}_mb'] = df[col] * BYTES_TO_MB
+
+    if 'tier_transition_bytes_total' in df.columns:
+        zero_total = (df['tier_transition_bytes_total'] == 0)
+        if zero_total.any():
+            recomputed = (
+                df['evict_npu_to_cpu_bytes']
+                + df['evict_npu_to_cxl_bytes']
+                + df['load_cpu_to_npu_bytes']
+                + df['load_cxl_to_npu_bytes']
+            )
+            df.loc[zero_total, 'tier_transition_bytes_total'] = recomputed[zero_total]
+
+    df['tier_transition_mb_total'] = df['tier_transition_bytes_total'] * BYTES_TO_MB
 
     return df
 
