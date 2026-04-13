@@ -9,7 +9,7 @@
                 {
                     "mem_size": 128,
                     "mem_bw": 256,
-                    "mem_latency": 0
+                    "mem_latency": 110
                 },
             "instances": [
                 {

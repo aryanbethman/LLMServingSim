@@ -127,6 +127,9 @@ New models and hardware can be added using the provided profiler. See
 | `--fp` | `16` | Floating-point precision in bits |
 | `--request-routing-policy` | `RR` | Request routing across instances (`RR`, `RAND`, `CUSTOM`) |
 | `--expert-routing-policy` | `FAST` | Expert token routing for MoE (`RR`, `RAND`, `FAST`, `CUSTOM`) |
+| `--kv-eviction-policy` | `tail` | Decode-request preemption policy when KV memory is full (built-ins: `tail`, `fifo`, `lru`, `largest_kv`, `smallest_kv`, `random`, `evicpress`; `oldest` is kept as a compatibility alias of `fifo`; custom policies can be added under `inference_serving/eviction_policies/`) |
+| `--evicpress-alpha` | `1.0` | Quality-latency tradeoff coefficient for EVICPRESS utility scoring |
+| `--evicpress-ratios` | `1.0,0.75,0.5,0.25` | Comma-separated compression keep ratios used by EVICPRESS |
 | `--enable-prefix-caching` | `False` | Enable prefix caching via RadixAttention |
 | `--enable-prefix-sharing` | `False` | Enable second-tier prefix cache pooling |
 | `--prefix-storage` | `None` | Storage tier for the second-tier prefix pool (`None`, `CPU`, `CXL`) |
@@ -143,6 +146,14 @@ New models and hardware can be added using the provided profiler. See
 | `--log-interval` | `0.5` | Throughput logging interval in seconds |
 | `--log-level` | `WARNING` | Logging verbosity (`WARNING`, `INFO`, `DEBUG`) |
 | `--network-backend` | `analytical` | Network simulation backend (`analytical`, `ns3`) |
+
+### Custom KV Eviction Policies
+
+KV eviction policies are modularized in `inference_serving/eviction_policies/`.
+You can add a new policy by creating a class that subclasses
+`EvictionPolicy`, registering it with `@register_policy("your_policy_name")`,
+and importing that module from `inference_serving/eviction_policies/__init__.py`.
+After registration, the policy becomes available in `--kv-eviction-policy`.
 
 ## Outputs of `main.py`
 

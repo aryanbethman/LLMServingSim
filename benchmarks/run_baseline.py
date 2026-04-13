@@ -30,6 +30,11 @@ from pathlib import Path
 from datetime import datetime
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from inference_serving.eviction_policies import get_registered_policy_names
+
 OUTPUT_DIR = ROOT_DIR / "output" / "tiered_kv"
 
 # ─────────────────────── Experiment definitions ───────────────────────
@@ -223,7 +228,7 @@ def warn_duplicate_cluster_configs(experiments):
 
 # ─────────────────────── Runner ───────────────────────────────────────
 
-def run_experiment(exp, dry_run=False):
+def run_experiment(exp, dry_run=False, kv_eviction_policy="tail"):
     """Run a single experiment."""
     out_dir = OUTPUT_DIR / exp["name"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -242,6 +247,7 @@ def run_experiment(exp, dry_run=False):
         "--timeseries-output", str(timeseries_csv.relative_to(ROOT_DIR)),
         "--block-size", str(exp["block_size"]),
         "--log-interval", "0.5",
+        "--kv-eviction-policy", kv_eviction_policy,
     ]
 
     if exp["prefix_caching"]:
@@ -291,6 +297,11 @@ def main():
                        help="Print experiments without running them")
     parser.add_argument("--filter", type=str, default=None,
                        help="Only run experiments whose name contains this substring")
+    policy_choices = get_registered_policy_names()
+    parser.add_argument("--kv-eviction-policy", type=str,
+                        choices=policy_choices,
+                        default="tail",
+                        help="KV eviction policy to pass to main.py")
     args = parser.parse_args()
 
     phases = list(PHASES.keys()) if args.phase == "all" else [args.phase]
@@ -322,7 +333,7 @@ def main():
             results["skipped"] += 1
             continue
 
-        ok = run_experiment(exp, dry_run=args.dry_run)
+        ok = run_experiment(exp, dry_run=args.dry_run, kv_eviction_policy=args.kv_eviction_policy)
         if args.dry_run:
             results["skipped"] += 1
         elif ok:

@@ -8,7 +8,7 @@
             "cpu_mem": {
                 "mem_size": 512,
                 "mem_bw": 512,
-                "mem_latency": 0
+                "mem_latency": 110
             },
             "instances": [
                 {
@@ -34,7 +34,7 @@
         }
     ],
     "cxl_mem": {
-        "mem_size": 512,
+        "mem_size": 1024,
         "mem_latency": 150,
         "mem_bw": 120,
         "num_devices": 1

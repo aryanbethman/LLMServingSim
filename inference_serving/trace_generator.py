@@ -91,17 +91,19 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
 
     # vllm: open output txt file and add load, evict mem 
     mem = []
-    cpu_dev = get_device(placement, None, None, 'kv_evict_loc')  # e.g. "REMOTE:0"
-    # Determine CXL device string: use "CXL:0" by default
-    cxl_dev = "CXL:0"
+    # CPU transfers must always use the host-memory path, regardless of the
+    # configured default eviction tier in placement.
+    cpu_dev = f"REMOTE:{node_id}"
+    # External-tier transfers follow the configured KV eviction location.
+    external_dev = get_device(placement, None, None, 'kv_evict_loc')
 
     # CXL load/evict entries (faster tier, listed first)
     if load_cxl_size != 0:
-        mem.append(["kv_load", '0', 'LOCAL', '0', cxl_dev, str(load_cxl_size), 'LOCAL', '0', 'NONE', '0', 'NONE'])
+        mem.append(["kv_load", '0', 'LOCAL', '0', external_dev, str(load_cxl_size), 'LOCAL', '0', 'NONE', '0', 'NONE'])
         if power_model is not None:
             power_model.add_dram_energy_consumption(node_id, load_cxl_size)
     if evict_cxl_size != 0:
-        mem.append(["kv_evict", '0', 'LOCAL', '0', cxl_dev, str(evict_cxl_size), 'LOCAL', '0', 'NONE', '0', 'NONE'])
+        mem.append(["kv_evict", '0', 'LOCAL', '0', external_dev, str(evict_cxl_size), 'LOCAL', '0', 'NONE', '0', 'NONE'])
         if power_model is not None:
             power_model.add_dram_energy_consumption(node_id, evict_cxl_size)
 
@@ -141,7 +143,14 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
         for i in range(0, len(result)):
             if "EXPERT" not in result[i][0] and "PIM" not in result[i][0]:
                 new_string = f'{result[i][0]}_{i}'
-                f.write(formatter(new_string, *result[i][1:]))
+                fields = [str(x) for x in result[i][1:]]
+                # Parsed rows can lose trailing empty columns after regex split;
+                # normalize to the formatter's fixed 10-field payload.
+                if len(fields) < 10:
+                    fields.extend([""] * (10 - len(fields)))
+                elif len(fields) > 10:
+                    fields = fields[:10]
+                f.write(formatter(new_string, *fields))
             else:
                 f.write(formatter(' '.join(result[i]),'','','','','','','','','',''))
     return

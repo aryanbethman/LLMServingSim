@@ -27,6 +27,11 @@ from typing import Dict, List
 import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from inference_serving.eviction_policies import get_registered_policy_names
+
 OUTPUT_ROOT = ROOT_DIR / "output" / "tiered_kv" / "backend_diff"
 
 CONFIGS = {
@@ -134,6 +139,7 @@ def _build_command(
     cluster_config: str,
     dataset: str,
     num_req: int,
+    kv_eviction_policy: str,
     result_csv: Path,
     timeseries_csv: Path,
 ) -> List[str]:
@@ -152,6 +158,8 @@ def _build_command(
         str(timeseries_csv.relative_to(ROOT_DIR)),
         "--network-backend",
         backend,
+        "--kv-eviction-policy",
+        kv_eviction_policy,
     ]
 
 
@@ -162,6 +170,7 @@ def _run_one(
     cluster_config: str,
     dataset: str,
     num_req: int,
+    kv_eviction_policy: str,
     timeout: int,
     dry_run: bool,
     rerun: bool,
@@ -192,6 +201,7 @@ def _run_one(
         cluster_config=cluster_config,
         dataset=dataset,
         num_req=num_req,
+        kv_eviction_policy=kv_eviction_policy,
         result_csv=result_csv,
         timeseries_csv=timeseries_csv,
     )
@@ -355,6 +365,14 @@ def main():
     parser.add_argument("--rerun", action="store_true", help="Re-run even if outputs already exist")
     parser.add_argument("--timeout", type=int, default=3600, help="Per-run timeout in seconds")
     parser.add_argument("--num-req-override", type=int, default=None, help="Override num_req for all workloads")
+    policy_choices = get_registered_policy_names()
+    parser.add_argument(
+        "--kv-eviction-policy",
+        type=str,
+        choices=policy_choices,
+        default="tail",
+        help="KV eviction policy to pass to main.py",
+    )
     args = parser.parse_args()
 
     selected_configs = _select_items(args.configs, CONFIGS, "configs")
@@ -387,6 +405,7 @@ def main():
                     cluster_config=CONFIGS[cfg_name],
                     dataset=wl["dataset"],
                     num_req=num_req,
+                    kv_eviction_policy=args.kv_eviction_policy,
                     timeout=args.timeout,
                     dry_run=args.dry_run,
                     rerun=args.rerun,

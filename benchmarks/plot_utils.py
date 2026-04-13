@@ -55,6 +55,11 @@ TIER_COLORS = {
     "npu_cxl_cpu":  "#e377c2",  # pink  (3-tier: NPU→CXL→CPU)
     "npu_cxl_fast": "#d62728",  # red
     "npu_cxl_slow": "#9467bd",  # purple
+    "cpu_dram":     "#17becf",  # cyan
+    "cxl":          "#bcbd22",  # olive
+    "pcie_nvme":    "#8c564b",  # brown
+    "ssd":          "#7f7f7f",  # gray
+    "ethernet":     "#1f77b4",  # blue
 }
 
 # Block-size sweep colors
@@ -92,6 +97,11 @@ TIER_LABELS = {
     "npu_cxl_cpu":  "NPU → CXL → CPU",
     "npu_cxl_fast": "NPU + CXL (Fast)",
     "npu_cxl_slow": "NPU + CXL (Slow)",
+    "cpu_dram":     "CPU DRAM Tier",
+    "cxl":          "CXL Tier",
+    "pcie_nvme":    "PCIe NVMe Tier",
+    "ssd":          "SSD Tier",
+    "ethernet":     "Ethernet Tier",
 }
 
 BLOCK_LABELS = {

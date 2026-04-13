@@ -13,10 +13,17 @@ class EvictionAction:
     device: Device
     ratio: float = 1.0
     utility: float = 0.0
+    grace_tokens: int = 0
+    grace_bytes: int = 0
+    target_state: str = "cold"
+    score: float = 0.0
 
 
 class EvictionPolicy(ABC):
     name = "base"
+
+    def __init__(self, **kwargs):
+        del kwargs
 
     def build_pool(self, gen_req: List[Any], scheduler: Any) -> List[Any]:
         return list(gen_req)

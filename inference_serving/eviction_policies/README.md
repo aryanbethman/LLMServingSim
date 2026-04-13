@@ -5,7 +5,9 @@ Eviction policies are modularized under this folder.
 ## Built-in policies
 
 - `tail`
-- `oldest`
+- `fifo` (arrival-order eviction)
+- `lru` (least-recently-used, based on request service recency)
+- `oldest` (compatibility alias of `fifo`)
 - `largest_kv`
 - `smallest_kv`
 - `random`

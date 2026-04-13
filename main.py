@@ -18,6 +18,7 @@ from inference_serving.config_builder import *
 from inference_serving.router import *
 from inference_serving.power_model import *
 from inference_serving.logger import *
+from inference_serving.eviction_policies import get_registered_policy_names
 import sys as flush
 
 from pyinstrument import Profiler
@@ -58,6 +59,57 @@ def main():
     parser.add_argument('--log-interval', type=float, help='interval to log throughput (sec)', default=0.5)
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
+    policy_choices = get_registered_policy_names()
+    parser.add_argument(
+        '--kv-eviction-policy',
+        type=str,
+        choices=policy_choices,
+        help=(
+            "policy for selecting decode requests to preempt when NPU KV memory is full "
+            f"({', '.join(policy_choices)}). If omitted, falls back to cluster_config.kv_eviction_policy or 'tail'."
+        ),
+        default=None,
+    )
+    parser.add_argument(
+        '--evicpress-alpha',
+        type=float,
+        default=1.0,
+        help='quality-vs-delay tradeoff coefficient for EVICPRESS utility scoring',
+    )
+    parser.add_argument(
+        '--evicpress-ratios',
+        type=str,
+        default='1.0,0.75,0.5,0.25',
+        help='comma-separated compression keep ratios in (0,1], used by EVICPRESS',
+    )
+    parser.add_argument(
+        '--harp-grace-candidates',
+        type=str,
+        default='16,32,64',
+        help='comma-separated grace-token candidates for HARP shadow state',
+    )
+    parser.add_argument(
+        '--harp-ratios',
+        type=str,
+        default='1.0,0.75,0.5,0.25',
+        help='comma-separated compression keep ratios in (0,1], used by HARP',
+    )
+    parser.add_argument('--harp-lambda-stall', type=float, default=1.0, help='HARP stall penalty weight')
+    parser.add_argument('--harp-lambda-quality', type=float, default=0.5, help='HARP quality penalty weight')
+    parser.add_argument('--harp-lambda-fairness', type=float, default=0.1, help='HARP fairness debt penalty weight')
+    parser.add_argument('--harp-fairness-epsilon', type=float, default=1e-6, help='HARP fairness denominator epsilon')
+    parser.add_argument(
+        '--harp-compression-profile',
+        type=str,
+        default='balanced',
+        help='HARP compression profile preset (none, balanced, kivi, kvquant, gearkv, h2o)',
+    )
+    parser.add_argument(
+        '--harp-compression-trace',
+        type=str,
+        default='',
+        help='optional path to JSON/CSV ratio-sensitivity trace for HARP compression modeling',
+    )
 
     args = parser.parse_args()
 
@@ -96,6 +148,34 @@ def main():
     num_req=args.num_req
     log_interval=args.log_interval
     network_backend = args.network_backend
+    kv_eviction_policy_arg = args.kv_eviction_policy
+    evicpress_alpha = args.evicpress_alpha
+    try:
+        evicpress_ratios = [float(v.strip()) for v in str(args.evicpress_ratios).split(',') if v.strip()]
+    except ValueError as exc:
+        raise ValueError(f"Invalid --evicpress-ratios '{args.evicpress_ratios}': {exc}")
+    if not evicpress_ratios:
+        raise ValueError("--evicpress-ratios produced an empty list. Provide values in (0,1].")
+    try:
+        harp_grace_candidates = [int(v.strip()) for v in str(args.harp_grace_candidates).split(',') if v.strip()]
+    except ValueError as exc:
+        raise ValueError(f"Invalid --harp-grace-candidates '{args.harp_grace_candidates}': {exc}")
+    if not harp_grace_candidates:
+        raise ValueError("--harp-grace-candidates produced an empty list. Provide non-negative integers.")
+
+    try:
+        harp_ratios = [float(v.strip()) for v in str(args.harp_ratios).split(',') if v.strip()]
+    except ValueError as exc:
+        raise ValueError(f"Invalid --harp-ratios '{args.harp_ratios}': {exc}")
+    if not harp_ratios:
+        raise ValueError("--harp-ratios produced an empty list. Provide values in (0,1].")
+
+    harp_lambda_stall = float(args.harp_lambda_stall)
+    harp_lambda_quality = float(args.harp_lambda_quality)
+    harp_lambda_fairness = float(args.harp_lambda_fairness)
+    harp_fairness_epsilon = float(args.harp_fairness_epsilon)
+    harp_compression_profile = str(args.harp_compression_profile)
+    harp_compression_trace = str(args.harp_compression_trace or '')
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
     num_nodes = cluster["num_nodes"]
@@ -115,6 +195,10 @@ def main():
     power_modeling = cluster["power_modeling"]
     power_configs = cluster["power_configs"]
     pim_models = cluster["pim_models"]
+    external_tier_name = cluster.get("external_tier_name", "CXL")
+    external_tier_bw = cluster.get("external_tier_bw", 0)
+    external_tier_latency = cluster.get("external_tier_latency", 0)
+    kv_eviction_policy = kv_eviction_policy_arg or cluster.get("kv_eviction_policy", "tail")
     # ----------------------------------------- Set config -----------------------------------------
     # Automatic network, memory configuration
     # If you want to set more specific information such as latency, look at config.py and each json file
@@ -197,13 +281,22 @@ def main():
         cxl_mem = 0
         if cluster["cxl_mem_size"] > 0:
             cxl_mem = cluster["cxl_mem_size"]        
+        node_id = instance["node_id"]
+        cpu_tier_bw = cluster["cpu_mem_bw"][node_id]
+        cpu_tier_latency = cluster["cpu_mem_latency"][node_id]
         
         # Make scheduler for each instance
         schedulers.append(Scheduler(
             instance["model_name"], instance["node_id"], instance_id, max_batch, max_num_batched_tokens,
             instance["npu_num"], instance["npu_group"], instance["npu_mem"]["mem_size"], cpu_mem_size[instance["node_id"]],
             inst2npu_mapping[instance_id], instance["pd_type"], fp, block_size, num_req, 
-            prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, pool_device, cxl_mem
+            prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, pool_device,
+            cxl_mem, kv_eviction_policy, external_tier_name,
+            cpu_tier_bw, cpu_tier_latency, external_tier_bw, external_tier_latency,
+            evicpress_alpha, evicpress_ratios,
+            harp_grace_candidates, harp_ratios,
+            harp_lambda_stall, harp_lambda_quality, harp_lambda_fairness,
+            harp_fairness_epsilon, harp_compression_profile, harp_compression_trace
         ))
 
     # Controller for astra-sim process communication
@@ -294,6 +387,9 @@ def main():
             'evict_npu_to_cxl_bytes_total', 'load_cxl_to_npu_bytes_total',
             'evict_npu_prefix_bytes_total', 'evict_storage_prefix_bytes_total',
             'prefix_load_storage_to_npu_bytes_total',
+            'harp_hot_reqs', 'harp_shadow_reqs', 'harp_cold_reqs',
+            'harp_prefetch_remaining_bytes', 'harp_prefetch_overlap_ratio',
+            'harp_stall_time_ns_total', 'harp_shadow_hit_rate',
         ])
 
     # Starting simulation, one while loop processes one iteration
@@ -471,6 +567,13 @@ def main():
                             _, storage_hit_interval, _ = mem.second_tier_prefix_cache.get_interval_hit_rate()
 
                     ts = schedulers[inst_id].tier_stats
+                    harp_counts = schedulers[inst_id].get_harp_state_counts()
+                    harp_overlap_ratio = 0.0
+                    if ts['harp_prefetch_bytes_total'] > 0:
+                        harp_overlap_ratio = ts['harp_prefetch_overlap_bytes'] / ts['harp_prefetch_bytes_total']
+                    harp_shadow_hit_rate = 0.0
+                    if ts['harp_decode_tokens_total'] > 0:
+                        harp_shadow_hit_rate = ts['harp_shadow_hit_tokens'] / ts['harp_decode_tokens_total']
                     ts_csv_writer.writerow([
                         int(last_log), inst_id,
                         int(mem.npu_used), int(mem.npu_mem),
@@ -485,6 +588,9 @@ def main():
                         ts['evict_npu_to_cxl_bytes'], ts['load_cxl_to_npu_bytes'],
                         ts['evict_npu_prefix_bytes'], ts['evict_storage_prefix_bytes'],
                         ts['prefix_load_storage_to_npu_bytes'],
+                        harp_counts['hot'], harp_counts['shadow'], harp_counts['cold'],
+                        int(harp_counts['prefetch_remaining_bytes']), f"{harp_overlap_ratio:.6f}",
+                        int(ts['harp_stall_time_ns']), f"{harp_shadow_hit_rate:.6f}",
                     ])
                 ts_csv_file.flush()
 

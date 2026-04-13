@@ -28,7 +28,9 @@ class _OrderedPolicy(EvictionPolicy):
             if scheduler.memory.cxl_mem > 0 and scheduler.memory.is_avail(stored_bytes, Device.CXL):
                 target_device = Device.CXL
             elif not scheduler.memory.is_avail(stored_bytes, Device.CPU):
-                return None
+                # This request cannot be spilled to any lower tier right now.
+                # Keep scanning in policy order for another feasible victim.
+                continue
 
             return EvictionAction(
                 req=req,
@@ -47,10 +49,26 @@ class TailPolicy(_OrderedPolicy):
     pass
 
 
-@register_policy("oldest")
-class OldestPolicy(_OrderedPolicy):
+@register_policy("fifo")
+class FIFOPolicy(_OrderedPolicy):
     def _order(self, pool: List[Any], scheduler: Any) -> List[Any]:
         pool.sort(key=lambda req: (req.arrival, req.id), reverse=True)
+        return pool
+
+
+# Backward-compatible alias. Semantics are FIFO (arrival-order), not true LRU.
+@register_policy("oldest")
+class OldestPolicy(FIFOPolicy):
+    pass
+
+
+@register_policy("lru")
+class LRUPolicy(_OrderedPolicy):
+    def _order(self, pool: List[Any], scheduler: Any) -> List[Any]:
+        del scheduler
+        # Least recently used requests should be evicted first.
+        # `recent_end` is updated when the request is last served.
+        pool.sort(key=lambda req: (getattr(req, "recent_end", req.arrival), req.arrival, req.id), reverse=True)
         return pool
 
 
