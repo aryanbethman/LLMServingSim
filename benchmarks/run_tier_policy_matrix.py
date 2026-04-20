@@ -19,6 +19,7 @@ Usage examples:
   python benchmarks/run_tier_policy_matrix.py --dry-run
     python benchmarks/run_tier_policy_matrix.py --tiers cpu_dram cxl pcie_nvme --policies tail fifo lru largest_kv
   python benchmarks/run_tier_policy_matrix.py --workloads sharegpt_100 fixed_256 --rerun
+    python benchmarks/run_tier_policy_matrix.py --workloads sharegpt_750 sharegpt_1000 sharegpt_1500 --policies all --rerun
 """
 
 from __future__ import annotations
@@ -53,6 +54,22 @@ WORKLOADS = {
     "sharegpt_100": {
         "dataset": "dataset/sharegpt_req100_rate10_llama.jsonl",
         "num_req": 100,
+    },
+    "sharegpt_300": {
+        "dataset": "dataset/sharegpt_req300_rate10_llama.jsonl",
+        "num_req": 300,
+    },
+    "sharegpt_750": {
+        "dataset": "dataset/sharegpt_req750_rate10_llama.jsonl",
+        "num_req": 750,
+    },
+    "sharegpt_1000": {
+        "dataset": "dataset/sharegpt_req1000_rate10_llama.jsonl",
+        "num_req": 1000,
+    },
+    "sharegpt_1500": {
+        "dataset": "dataset/sharegpt_req1500_rate10_llama.jsonl",
+        "num_req": 1500,
     },
     "fixed_256": {
         "dataset": "dataset/fixed_in128_out512_req256_rate10.jsonl",
@@ -261,6 +278,8 @@ def _run_one(
         )
     except subprocess.TimeoutExpired as exc:
         partial = exc.stdout or ""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
         stdout_log.write_text(partial, encoding="utf-8")
         return RunRecord(
             tier=tier,

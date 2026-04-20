@@ -31,6 +31,9 @@ Examples:
   python benchmarks/run_model_tier_policy_matrix.py \
       --models llama8b phi_moe --tiers cpu_dram cxl pcie_nvme \
       --policies tail fifo lru largest_kv evicpress --workloads sharegpt_100 fixed_256
+    python benchmarks/run_model_tier_policy_matrix.py \
+            --models llama8b --tiers cpu_dram cxl pcie_nvme --policies all \
+            --workloads sharegpt_750 sharegpt_1000 sharegpt_1500
 """
 
 from __future__ import annotations
@@ -65,16 +68,25 @@ MODEL_CONFIG_ROOT = ROOT_DIR / "model_config"
 LLAMA_SHAREGPT_DATASETS = {
     "sharegpt_100": "dataset/sharegpt_req100_rate10_llama.jsonl",
     "sharegpt_300": "dataset/sharegpt_req300_rate10_llama.jsonl",
+    "sharegpt_750": "dataset/sharegpt_req750_rate10_llama.jsonl",
+    "sharegpt_1000": "dataset/sharegpt_req1000_rate10_llama.jsonl",
+    "sharegpt_1500": "dataset/sharegpt_req1500_rate10_llama.jsonl",
 }
 
 PHI_SHAREGPT_DATASETS = {
     "sharegpt_100": "dataset/sharegpt_req100_rate10_phi.jsonl",
     "sharegpt_300": "dataset/sharegpt_req300_rate10_phi.jsonl",
+    "sharegpt_750": "dataset/sharegpt_req750_rate10_phi.jsonl",
+    "sharegpt_1000": "dataset/sharegpt_req1000_rate10_phi.jsonl",
+    "sharegpt_1500": "dataset/sharegpt_req1500_rate10_phi.jsonl",
 }
 
 MIXTRAL_SHAREGPT_DATASETS = {
     "sharegpt_100": "dataset/sharegpt_req100_rate10_mixtral.jsonl",
     "sharegpt_300": "dataset/sharegpt_req300_rate10_mixtral.jsonl",
+    "sharegpt_750": "dataset/sharegpt_req750_rate10_mixtral.jsonl",
+    "sharegpt_1000": "dataset/sharegpt_req1000_rate10_mixtral.jsonl",
+    "sharegpt_1500": "dataset/sharegpt_req1500_rate10_mixtral.jsonl",
 }
 
 CANONICAL_KEY_OVERRIDES = {
@@ -167,6 +179,18 @@ WORKLOADS = {
     "sharegpt_300": {
         "default_dataset": "dataset/sharegpt_req300_rate10_llama.jsonl",
         "num_req": 300,
+    },
+    "sharegpt_750": {
+        "default_dataset": "dataset/sharegpt_req750_rate10_llama.jsonl",
+        "num_req": 750,
+    },
+    "sharegpt_1000": {
+        "default_dataset": "dataset/sharegpt_req1000_rate10_llama.jsonl",
+        "num_req": 1000,
+    },
+    "sharegpt_1500": {
+        "default_dataset": "dataset/sharegpt_req1500_rate10_llama.jsonl",
+        "num_req": 1500,
     },
     "fixed_256": {
         "default_dataset": "dataset/fixed_in128_out512_req256_rate10.jsonl",

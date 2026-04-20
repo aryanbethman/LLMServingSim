@@ -122,6 +122,9 @@ PREFIX_LABELS = {
 WORKLOAD_LABELS = {
     "sharegpt_100":  "ShareGPT-100",
     "sharegpt_300":  "ShareGPT-300",
+    "sharegpt_750":  "ShareGPT-750",
+    "sharegpt_1000": "ShareGPT-1000",
+    "sharegpt_1500": "ShareGPT-1500",
     "fixed_256":     "Fixed-256",
     "prefix_stress": "Prefix Stress",
     "pulse_prefix":  "Pulse Prefix",

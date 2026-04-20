@@ -36,7 +36,14 @@ BYTES_TO_MB = 1.0 / (1024.0 * 1024.0)
 NS_TO_MS = 1e-6
 
 TIER_ORDER = ["cpu_dram", "cxl", "ethernet", "pcie_nvme", "ssd"]
-WORKLOAD_ORDER = ["fixed_256", "sharegpt_100", "sharegpt_300"]
+WORKLOAD_ORDER = [
+    "fixed_256",
+    "sharegpt_100",
+    "sharegpt_300",
+    "sharegpt_750",
+    "sharegpt_1000",
+    "sharegpt_1500",
+]
 MODEL_ORDER = ["llama8b", "phi_moe", "mixtral_8x7b", "llama70b"]
 
 TIER_COLORS = {
@@ -51,6 +58,9 @@ WORKLOAD_MARKERS = {
     "fixed_256": "o",
     "sharegpt_100": "^",
     "sharegpt_300": "s",
+    "sharegpt_750": "D",
+    "sharegpt_1000": "P",
+    "sharegpt_1500": "X",
 }
 
 
