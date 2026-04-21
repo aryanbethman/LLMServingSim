@@ -1,4 +1,0 @@
-tier,workload,policy,num_requests,mean_ttft_ms,mean_tpot_ms,mean_latency_ms,p99_ttft_ms,p99_tpot_ms,result_csv
-cpu_dram,sharegpt_1000,harp,1000,115778.86596054099,46.010116089,127609.37187835299,245684.90569729998,93.30769880999996,output/tiered_kv/tier_policy_matrix/cpu_dram/harp/sharegpt_1000/result.csv
-cpu_dram,sharegpt_1500,harp,1500,182194.187682334,45.74433457666667,194016.465872316,388873.09664003004,99.16735145999996,output/tiered_kv/tier_policy_matrix/cpu_dram/harp/sharegpt_1500/result.csv
-cpu_dram,sharegpt_750,harp,750,85376.12627450132,44.741360008,96615.94754738132,173922.32088445002,94.48118930999996,output/tiered_kv/tier_policy_matrix/cpu_dram/harp/sharegpt_750/result.csv
