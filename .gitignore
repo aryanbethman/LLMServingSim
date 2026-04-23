@@ -8,5 +8,7 @@ __pycache__/
 
 # Ignore pkl files
 *.pkl
+*.png
+
 
 output/

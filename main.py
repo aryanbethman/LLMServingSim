@@ -83,6 +83,18 @@ def main():
         help='comma-separated compression keep ratios in (0,1], used by EVICPRESS',
     )
     parser.add_argument(
+        '--evicpress-methods',
+        type=str,
+        default='balanced',
+        help='comma-separated EVICPRESS compression methods/profiles (none, balanced, kivi, kvquant, gearkv, h2o, trace)',
+    )
+    parser.add_argument(
+        '--evicpress-compression-trace',
+        type=str,
+        default='',
+        help='optional path to JSON/CSV ratio-sensitivity trace; required when --evicpress-methods includes trace',
+    )
+    parser.add_argument(
         '--harp-grace-candidates',
         type=str,
         default='16,32,64',
@@ -156,6 +168,10 @@ def main():
         raise ValueError(f"Invalid --evicpress-ratios '{args.evicpress_ratios}': {exc}")
     if not evicpress_ratios:
         raise ValueError("--evicpress-ratios produced an empty list. Provide values in (0,1].")
+    evicpress_methods = [v.strip().lower() for v in str(args.evicpress_methods).split(',') if v.strip()]
+    if not evicpress_methods:
+        raise ValueError("--evicpress-methods produced an empty list. Provide at least one method name.")
+    evicpress_compression_trace = str(args.evicpress_compression_trace or '')
     try:
         harp_grace_candidates = [int(v.strip()) for v in str(args.harp_grace_candidates).split(',') if v.strip()]
     except ValueError as exc:

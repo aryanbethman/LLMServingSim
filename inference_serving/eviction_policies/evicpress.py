@@ -1,7 +1,8 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..memory_model import Device
 from .base import EvictionAction, EvictionPolicy
+from .compression_profiles import load_compression_profile
 from .registry import register_policy
 
 
@@ -14,7 +15,14 @@ class EvicPressPolicy(EvictionPolicy):
     while staying compatible with this simulator's request scheduler.
     """
 
-    def __init__(self, evicpress_alpha: float = 1.0, evicpress_ratios=None, **kwargs):
+    def __init__(
+        self,
+        evicpress_alpha: float = 1.0,
+        evicpress_ratios=None,
+        evicpress_methods=None,
+        evicpress_compression_trace: str = "",
+        **kwargs,
+    ):
         del kwargs
         self.evicpress_alpha = float(evicpress_alpha)
         if evicpress_ratios is None:
@@ -26,6 +34,30 @@ class EvicPressPolicy(EvictionPolicy):
         )
         if not self.evicpress_ratios:
             self.evicpress_ratios = [1.0]
+
+        if evicpress_methods is None:
+            evicpress_methods = ["balanced"]
+        self.evicpress_methods = []
+        for method in evicpress_methods:
+            key = str(method).strip().lower()
+            if key:
+                self.evicpress_methods.append(key)
+        self.evicpress_methods = list(dict.fromkeys(self.evicpress_methods))
+        if not self.evicpress_methods:
+            self.evicpress_methods = ["balanced"]
+
+        self.evicpress_compression_trace = str(evicpress_compression_trace or "")
+        self.compression_profiles: Dict[str, Any] = {}
+        for method in self.evicpress_methods:
+            if method == "trace":
+                if not self.evicpress_compression_trace:
+                    raise ValueError(
+                        "EVICPRESS method 'trace' requires a valid --evicpress-compression-trace path"
+                    )
+                profile = load_compression_profile("balanced", self.evicpress_compression_trace)
+            else:
+                profile = load_compression_profile(method, "")
+            self.compression_profiles[method] = profile
 
     def build_pool(self, gen_req: List[Any], scheduler: Any) -> List[Any]:
         del scheduler
@@ -59,10 +91,9 @@ class EvicPressPolicy(EvictionPolicy):
         sensitivity = max(0.10, min(0.95, sensitivity))
         return float(sensitivity)
 
-    def _quality(self, req: Any, ratio: float, scheduler: Any) -> float:
+    def _quality(self, req: Any, ratio: float, method: str, scheduler: Any) -> float:
         sensitivity = self._sensitivity(req, scheduler)
-        # Compression quality loss tends to accelerate at lower keep ratios.
-        quality_drop = sensitivity * ((1.0 - ratio) ** 1.2)
+        quality_drop = sensitivity * self.compression_profiles[method].penalty(ratio)
         quality = 1.0 - quality_drop
         return max(0.0, min(1.0, quality))
 
@@ -77,16 +108,26 @@ class EvicPressPolicy(EvictionPolicy):
         bytes_per_sec = max(1e-9, bw * 1_000_000_000.0)
         return (latency_ns * 1e-9) + (moved_bytes / bytes_per_sec)
 
-    def _utility(self, req: Any, ratio: float, moved_bytes: int, device: Device, scheduler: Any) -> float:
+    def _utility(
+        self,
+        req: Any,
+        method: str,
+        ratio: float,
+        moved_bytes: int,
+        device: Device,
+        scheduler: Any,
+    ) -> float:
         freq = self._frequency(req)
-        quality = self._quality(req, ratio, scheduler)
+        quality = self._quality(req, ratio, method, scheduler)
         ttft_seconds = self._ttft_seconds(moved_bytes, device, scheduler)
         return (self.evicpress_alpha * quality - ttft_seconds) * freq
 
     def select_action(self, evict_pool: List[Any], scheduler: Any) -> Optional[EvictionAction]:
         best_action = None
+        best_utility_drop_per_saved_byte = None
         best_utility_drop = None
         best_saved_bytes = None
+        eps = 1e-12
 
         device_candidates = []
         if scheduler.memory.cxl_mem > 0:
@@ -105,40 +146,62 @@ class EvicPressPolicy(EvictionPolicy):
             # current tier (no reload TTFT penalty).
             baseline = self.evicpress_alpha * self._frequency(req)
 
-            for ratio in self.evicpress_ratios:
-                stored_bytes = max(1, int(raw_bytes * ratio))
+            for method in self.evicpress_methods:
+                for ratio in self.evicpress_ratios:
+                    stored_bytes = max(1, int(raw_bytes * ratio))
 
-                for device in device_candidates:
-                    if not scheduler.memory.is_avail(stored_bytes, device):
-                        continue
+                    for device in device_candidates:
+                        if not scheduler.memory.is_avail(stored_bytes, device):
+                            continue
 
-                    option_utility = self._utility(req, ratio, stored_bytes, device, scheduler)
-                    utility_drop = max(0.0, baseline - option_utility)
-                    saved_bytes = max(0, raw_bytes - stored_bytes)
+                        option_utility = self._utility(req, method, ratio, stored_bytes, device, scheduler)
+                        utility_drop = max(0.0, baseline - option_utility)
+                        saved_bytes = max(0, raw_bytes - stored_bytes)
+                        utility_drop_per_saved_byte = (
+                            utility_drop / float(saved_bytes) if saved_bytes > 0 else float("inf")
+                        )
 
-                    action = EvictionAction(
-                        req=req,
-                        raw_bytes=raw_bytes,
-                        stored_bytes=stored_bytes,
-                        device=device,
-                        ratio=ratio,
-                        utility=option_utility,
-                    )
+                        action = EvictionAction(
+                            req=req,
+                            raw_bytes=raw_bytes,
+                            stored_bytes=stored_bytes,
+                            device=device,
+                            ratio=ratio,
+                            utility=option_utility,
+                            score=utility_drop_per_saved_byte,
+                        )
 
-                    if best_action is None:
-                        best_action = action
-                        best_utility_drop = utility_drop
-                        best_saved_bytes = saved_bytes
-                        continue
+                        if best_action is None:
+                            best_action = action
+                            best_utility_drop_per_saved_byte = utility_drop_per_saved_byte
+                            best_utility_drop = utility_drop
+                            best_saved_bytes = saved_bytes
+                            continue
 
-                    if utility_drop < best_utility_drop:
-                        best_action = action
-                        best_utility_drop = utility_drop
-                        best_saved_bytes = saved_bytes
-                    elif utility_drop == best_utility_drop and saved_bytes > best_saved_bytes:
-                        best_action = action
-                        best_saved_bytes = saved_bytes
-                    elif utility_drop == best_utility_drop and saved_bytes == best_saved_bytes and action.stored_bytes < best_action.stored_bytes:
-                        best_action = action
+                        if utility_drop_per_saved_byte + eps < best_utility_drop_per_saved_byte:
+                            best_action = action
+                            best_utility_drop_per_saved_byte = utility_drop_per_saved_byte
+                            best_utility_drop = utility_drop
+                            best_saved_bytes = saved_bytes
+                        elif abs(utility_drop_per_saved_byte - best_utility_drop_per_saved_byte) <= eps:
+                            if utility_drop + eps < best_utility_drop:
+                                best_action = action
+                                best_utility_drop_per_saved_byte = utility_drop_per_saved_byte
+                                best_utility_drop = utility_drop
+                                best_saved_bytes = saved_bytes
+                            elif abs(utility_drop - best_utility_drop) <= eps:
+                                if saved_bytes > best_saved_bytes:
+                                    best_action = action
+                                    best_utility_drop_per_saved_byte = utility_drop_per_saved_byte
+                                    best_utility_drop = utility_drop
+                                    best_saved_bytes = saved_bytes
+                                elif (
+                                    saved_bytes == best_saved_bytes
+                                    and action.stored_bytes < best_action.stored_bytes
+                                ):
+                                    best_action = action
+                                    best_utility_drop_per_saved_byte = utility_drop_per_saved_byte
+                                    best_utility_drop = utility_drop
+                                    best_saved_bytes = saved_bytes
 
         return best_action

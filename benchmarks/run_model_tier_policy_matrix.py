@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 import re
 import subprocess
 import sys
@@ -62,6 +63,9 @@ if str(ROOT_DIR) not in sys.path:
 from inference_serving.eviction_policies import get_registered_policy_names
 
 OUTPUT_ROOT = ROOT_DIR / "output" / "tiered_kv" / "model_tier_policy_matrix"
+_out_root_override = os.environ.get("MODEL_TIER_OUT_ROOT", "").strip()
+if _out_root_override:
+    OUTPUT_ROOT = (ROOT_DIR / _out_root_override).resolve() if not Path(_out_root_override).is_absolute() else Path(_out_root_override)
 GENERATED_CONFIG_ROOT = OUTPUT_ROOT / "_generated_cluster_configs"
 MODEL_CONFIG_ROOT = ROOT_DIR / "model_config"
 
@@ -245,7 +249,8 @@ def _select_items(selected: List[str], table: Dict[str, object], label: str) -> 
 def _select_policies(selected: List[str]) -> List[str]:
     if not selected or "all" in selected:
         return list(POLICIES)
-    unknown = [p for p in selected if p not in POLICIES]
+    allowed = set(POLICIES) | {"dynmax"}
+    unknown = [p for p in selected if p not in allowed]
     if unknown:
         raise ValueError(f"Unknown policies: {unknown}")
     return selected
@@ -375,6 +380,26 @@ def _build_command(
         )
         if harp_compression_trace:
             cmd.extend(["--harp-compression-trace", harp_compression_trace])
+    elif policy == "dynmax":
+        cmd[cmd.index("--kv-eviction-policy") + 1] = "harp"
+        cmd.extend(
+            [
+                "--harp-grace-candidates",
+                "0",
+                "--harp-ratios",
+                "1.0",
+                "--harp-lambda-stall",
+                "0.0",
+                "--harp-lambda-quality",
+                "0.0",
+                "--harp-lambda-fairness",
+                "0.0",
+                "--harp-fairness-epsilon",
+                str(harp_fairness_epsilon),
+                "--harp-compression-profile",
+                "none",
+            ]
+        )
 
     return cmd
 

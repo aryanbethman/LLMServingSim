@@ -130,6 +130,8 @@ New models and hardware can be added using the provided profiler. See
 | `--kv-eviction-policy` | `tail` | Decode-request preemption policy when KV memory is full (built-ins: `tail`, `fifo`, `lru`, `largest_kv`, `smallest_kv`, `random`, `evicpress`; `oldest` is kept as a compatibility alias of `fifo`; custom policies can be added under `inference_serving/eviction_policies/`) |
 | `--evicpress-alpha` | `1.0` | Quality-latency tradeoff coefficient for EVICPRESS utility scoring |
 | `--evicpress-ratios` | `1.0,0.75,0.5,0.25` | Comma-separated compression keep ratios used by EVICPRESS |
+| `--evicpress-methods` | `balanced` | Comma-separated EVICPRESS compression methods/profiles (`none`, `balanced`, `kivi`, `kvquant`, `gearkv`, `h2o`, `trace`) |
+| `--evicpress-compression-trace` | `` | Optional JSON/CSV ratio-sensitivity trace used when `--evicpress-methods` includes `trace` |
 | `--enable-prefix-caching` | `False` | Enable prefix caching via RadixAttention |
 | `--enable-prefix-sharing` | `False` | Enable second-tier prefix cache pooling |
 | `--prefix-storage` | `None` | Storage tier for the second-tier prefix pool (`None`, `CPU`, `CXL`) |
@@ -154,6 +156,7 @@ You can add a new policy by creating a class that subclasses
 `EvictionPolicy`, registering it with `@register_policy("your_policy_name")`,
 and importing that module from `inference_serving/eviction_policies/__init__.py`.
 After registration, the policy becomes available in `--kv-eviction-policy`.
+HARP is documented in [docs/HARP.md](docs/HARP.md).
 
 ## Outputs of `main.py`
 

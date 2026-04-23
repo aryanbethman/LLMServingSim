@@ -170,3 +170,18 @@ class HarpKVPolicy(EvictionPolicy):
                                 best = action
 
         return best
+
+
+@register_policy("dynmax")
+class DynMaxPolicy(HarpKVPolicy):
+    """DynMax: HARP with zero lambdas, zero grace tokens, and no compression."""
+
+    def __init__(self, **kwargs):
+        kwargs["harp_grace_candidates"] = [0]
+        kwargs["harp_ratios"] = [1.0]
+        kwargs["harp_lambda_stall"] = 0.0
+        kwargs["harp_lambda_quality"] = 0.0
+        kwargs["harp_lambda_fairness"] = 0.0
+        kwargs["harp_compression_profile"] = "none"
+        kwargs["harp_compression_trace"] = ""
+        super().__init__(**kwargs)
