@@ -1,3 +1,9 @@
+Note: This repository and codebase is fork of LLM Serving Sim 2.0, modified for the DSTN (CS F446) course project on KV Cache management for LLM serving. 
+
+We add different tiers for KV cache (CPU DRAM and CXL memory) and implement various eviction policies including HAPR and DynMax (experimental) designed by us for the course project. The main simulation logic is in `main.py`, and we provide benchmark runners in the `benchmarks/` directory for systematic evaluation.
+
+The original codebase and documentation are maintained by the CASYS Lab at KAIST. For the original repository, please visit: https://github.com/casys-kaist/LLMServingSim
+
 # LLMServingSim 2.0: A Unified Simulator for Heterogeneous and Disaggregated LLM Serving Infrastructure
 
 
