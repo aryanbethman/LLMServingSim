@@ -12,11 +12,13 @@ policies, and plots four metrics by workload:
 
 Default behavior mirrors the screenshot style:
     - workloads: sharegpt_750 sharegpt_1000 sharegpt_1500
-    - excluded policies: fifo evicpress harp
-    - included policies: tail, largest_kv, lru, random, smallest_kv, oldest, dynmax
+    - excluded policies: fifo evicpress adaptive_dynmax adaptive_dynamx
+    - included policies: tail, largest_kv, lru, random, smallest_kv, harp, dynmax, dynmax_proactive
 
 DynMax is treated as the HARP zero-lambda/no-compression configuration that was
 copied into the tier_policy_matrix/cpu_dram/dynmax directory.
+The proactive run stored under dynmax_proactive_32 is displayed as dynmax_proactive.
+The older dynmax_proactive_16 run is intentionally ignored.
 """
 
 from __future__ import annotations
@@ -45,15 +47,19 @@ WORKLOAD_LABELS = {
     "sharegpt_1500": "sharegpt_1500",
 }
 
-POLICY_ORDER = ["tail", "largest_kv", "lru", "random", "smallest_kv", "oldest", "dynmax"]
+POLICY_ORDER = ["tail", "largest_kv", "lru", "random", "smallest_kv", "harp", "dynmax", "dynmax_proactive"]
+POLICY_ALIASES = {
+    "dynmax_proactive_32": "dynmax_proactive",
+}
 POLICY_COLORS = {
-    "tail": "#3A7CA5",
-    "largest_kv": "#E76F51",
-    "lru": "#2A9D8F",
-    "random": "#8D99AE",
-    "smallest_kv": "#9C6644",
-    "oldest": "#D62828",
-    "dynmax": "#6A4C93",
+    "tail": "#1F77B4",
+    "largest_kv": "#FF7F0E",
+    "lru": "#2CA02C",
+    "random": "#D62728",
+    "smallest_kv": "#9467BD",
+    "harp": "#8C564B",
+    "dynmax": "#17BECF",
+    "dynmax_proactive": "#E377C2",
 }
 
 PROMPT_TP_RE = re.compile(r"Average prompt throughput \(tok/s\):\s*([0-9]+(?:\.[0-9]+)?)")
@@ -68,6 +74,9 @@ def _load_runs(root: Path) -> pd.DataFrame:
         if len(parts) != 3:
             continue
         policy, workload, _ = parts
+        if policy in {"dynmax_proactive_16", "oldest"}:
+            continue
+        policy = POLICY_ALIASES.get(policy, policy)
         df = pd.read_csv(result_csv)
         if df.empty or "TTFT" not in df.columns or "TPOT" not in df.columns:
             continue
@@ -140,7 +149,11 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--workloads", nargs="+", default=WORKLOAD_ORDER)
-    parser.add_argument("--exclude-policies", nargs="+", default=["fifo", "evicpress", "harp"])
+    parser.add_argument(
+        "--exclude-policies",
+        nargs="+",
+        default=["fifo", "evicpress", "adaptive_dynmax", "adaptive_dynamx"],
+    )
     args = parser.parse_args()
 
     df = _load_runs(args.root)
@@ -149,6 +162,7 @@ def main() -> None:
 
     exclude = {p.strip() for p in args.exclude_policies if p.strip()}
     df = df[~df["policy"].isin(exclude)].copy()
+    df = df[~df["policy"].str.startswith(("adaptive_dynmax", "adaptive_dynamx"), na=False)].copy()
     df = df[df["workload"].isin(args.workloads)].copy()
     if df.empty:
         raise RuntimeError("No rows left after filtering workloads/policies")

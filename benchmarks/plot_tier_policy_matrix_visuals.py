@@ -525,12 +525,6 @@ def main() -> None:
     parser.add_argument("--manifest-csv", type=Path, default=None, help="Optional explicit run_manifest.csv path")
     parser.add_argument("--metric-csv", type=Path, default=None, help="Optional explicit metric_summary.csv path")
     parser.add_argument("--out-dir", type=Path, default=None, help="Output directory for generated plots")
-    parser.add_argument(
-        "--exclude-policies",
-        nargs="*",
-        default=[],
-        help="Policy names to exclude from all plots (for example: fifo evicpress)",
-    )
     args = parser.parse_args()
 
     root = args.root
@@ -543,16 +537,6 @@ def main() -> None:
 
     manifest_df = _load_csv(manifest_path, "Run manifest")
     metric_df = _load_csv(metric_path, "Metric summary")
-
-    exclude_policies = {p.strip() for p in args.exclude_policies if p and p.strip()}
-    if exclude_policies:
-        if "policy" in metric_df.columns:
-            metric_df = metric_df[~metric_df["policy"].astype(str).isin(exclude_policies)].copy()
-        if "policy" in manifest_df.columns:
-            manifest_df = manifest_df[~manifest_df["policy"].astype(str).isin(exclude_policies)].copy()
-
-    if metric_df.empty:
-        raise ValueError("No rows left in metric summary after applying policy filters.")
 
     _coerce_numeric(
         metric_df,
@@ -578,9 +562,6 @@ def main() -> None:
     generated.extend(_plot_combined_dashboard_absolute(metric_df, out_dir))
 
     print(f"Saved {len(generated)} plot files to: {out_dir}")
-    if exclude_policies:
-        excluded = ", ".join(sorted(exclude_policies))
-        print(f"Excluded policies: {excluded}")
     for path in generated:
         print(f" - {path}")
 

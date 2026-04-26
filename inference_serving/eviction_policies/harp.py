@@ -20,19 +20,19 @@ class HarpKVPolicy(EvictionPolicy):
         self,
         harp_grace_candidates=None,
         harp_ratios=None,
-        harp_lambda_stall: float = 1.0,
-        harp_lambda_quality: float = 0.5,
-        harp_lambda_fairness: float = 0.1,
-        harp_fairness_epsilon: float = 1e-6,
+        harp_lambda_stall: float = 0,
+        harp_lambda_quality: float = 0,
+        harp_lambda_fairness: float = 0,
+        harp_fairness_epsilon: float = 0,
         harp_compression_profile: str = "balanced",
         harp_compression_trace: str = "",
         **kwargs,
     ):
         del kwargs
         if harp_grace_candidates is None:
-            harp_grace_candidates = [16, 32, 64]
+            harp_grace_candidates = [0]
         if harp_ratios is None:
-            harp_ratios = [1.0, 0.75, 0.5, 0.25]
+            harp_ratios = [1.0]
 
         self.harp_grace_candidates = sorted(
             {max(0, int(v)) for v in harp_grace_candidates}, reverse=True
@@ -185,3 +185,69 @@ class DynMaxPolicy(HarpKVPolicy):
         kwargs["harp_compression_profile"] = "none"
         kwargs["harp_compression_trace"] = ""
         super().__init__(**kwargs)
+
+
+@register_policy("adaptive_dynmax")
+class AdaptiveDynMaxPolicy(DynMaxPolicy):
+    """Adaptive DynMax: aggressive early proactivity that decays over progress."""
+
+    def __init__(
+        self,
+        adaptive_schedule: str = "linear",
+        adaptive_progress_start: float = 0.10,
+        adaptive_progress_end: float = 0.75,
+        adaptive_final_trigger: float = 1.05,
+        adaptive_final_target: float = 0.92,
+        adaptive_final_steps_ahead: int = 12,
+        adaptive_final_max_actions: int = 1,
+        **kwargs,
+    ):
+        self.adaptive_schedule = str(adaptive_schedule or "linear").strip().lower()
+        self.adaptive_progress_start = max(0.0, min(float(adaptive_progress_start), 1.0))
+        self.adaptive_progress_end = max(self.adaptive_progress_start + 1e-6, min(float(adaptive_progress_end), 1.0))
+        self.adaptive_final_trigger = max(0.0, min(float(adaptive_final_trigger), 1.5))
+        self.adaptive_final_target = max(0.0, min(float(adaptive_final_target), self.adaptive_final_trigger))
+        self.adaptive_final_steps_ahead = max(1, int(adaptive_final_steps_ahead))
+        self.adaptive_final_max_actions = max(1, int(adaptive_final_max_actions))
+        super().__init__(**kwargs)
+
+    def _current_progress(self, scheduler: Any) -> float:
+        total = max(1, int(getattr(scheduler, "req_num", 1)))
+        done = max(0, int(len(getattr(scheduler, "done", []))))
+        return max(0.0, min(1.0, done / total))
+
+    def _blend(self, start_value: float, end_value: float, progress: float) -> float:
+        if self.adaptive_schedule != "linear":
+            raise NotImplementedError(f"Unsupported adaptive DynMax schedule '{self.adaptive_schedule}'")
+        if progress <= self.adaptive_progress_start:
+            return start_value
+        if progress >= self.adaptive_progress_end:
+            return end_value
+        span = self.adaptive_progress_end - self.adaptive_progress_start
+        alpha = (progress - self.adaptive_progress_start) / span
+        return start_value + (end_value - start_value) * alpha
+
+    def get_adaptive_proactive_settings(self, scheduler: Any):
+        progress = self._current_progress(scheduler)
+        trigger = self._blend(0.80, self.adaptive_final_trigger, progress)
+        target = self._blend(0.60, self.adaptive_final_target, progress)
+        steps_ahead = int(round(self._blend(48.0, float(self.adaptive_final_steps_ahead), progress)))
+        max_actions = int(round(self._blend(4.0, float(self.adaptive_final_max_actions), progress)))
+        steps_ahead = max(1, steps_ahead)
+        max_actions = max(1, max_actions)
+
+        if progress <= self.adaptive_progress_start:
+            phase = "early"
+        elif progress >= self.adaptive_progress_end:
+            phase = "late"
+        else:
+            phase = "transition"
+
+        return {
+            "phase": phase,
+            "progress": progress,
+            "trigger": max(0.0, min(trigger, 1.5)),
+            "target": max(0.0, min(target, trigger)),
+            "steps_ahead": steps_ahead,
+            "max_actions": max_actions,
+        }

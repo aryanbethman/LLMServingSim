@@ -26,7 +26,14 @@ class Scheduler:
                  harp_grace_candidates=None, harp_ratios=None,
                  harp_lambda_stall=1.0, harp_lambda_quality=0.5, harp_lambda_fairness=0.1,
                  harp_fairness_epsilon=1e-6,
-                 harp_compression_profile="balanced", harp_compression_trace=""):
+                 harp_compression_profile="balanced", harp_compression_trace="",
+                 adaptive_dynmax_schedule="linear",
+                 adaptive_dynmax_progress_start=0.10, adaptive_dynmax_progress_end=0.75,
+                 adaptive_dynmax_final_trigger=1.05, adaptive_dynmax_final_target=0.92,
+                 adaptive_dynmax_final_steps_ahead=12, adaptive_dynmax_final_max_actions=1,
+                 enable_proactive_eviction=False, proactive_steps_ahead=32,
+                 proactive_trigger=0.85, proactive_target=0.70,
+                 proactive_max_actions=2):
         # all time realated variables are in using tick (system tick)
         # LLMServingSim uses Orca, vLLM technique at deafult
         self.model = model
@@ -51,8 +58,8 @@ class Scheduler:
                 f"Unsupported kv eviction policy '{kv_eviction_policy}'. "
                 f"Choose one of {available_evict_policies}"
             )
-        if self.enable_prefix_caching and self.kv_eviction_policy == "harp":
-            raise ValueError("KV eviction policy 'harp' is currently supported only when prefix caching is disabled")
+        if self.enable_prefix_caching and self.kv_eviction_policy in ("harp", "dynmax", "adaptive_dynmax"):
+            raise ValueError("KV eviction policies 'harp', 'dynmax', and 'adaptive_dynmax' are currently supported only when prefix caching is disabled")
         self.external_tier_name = external_tier_name or "CXL"
         self.cpu_tier_bw = max(float(cpu_tier_bw), 1e-9)
         self.cpu_tier_latency = max(float(cpu_tier_latency), 0.0)
@@ -86,6 +93,18 @@ class Scheduler:
         self.harp_fairness_epsilon = max(1e-12, float(harp_fairness_epsilon))
         self.harp_compression_profile = str(harp_compression_profile or "balanced")
         self.harp_compression_trace = str(harp_compression_trace or "")
+        self.adaptive_dynmax_schedule = str(adaptive_dynmax_schedule or "linear").strip().lower()
+        self.adaptive_dynmax_progress_start = max(0.0, min(float(adaptive_dynmax_progress_start), 1.0))
+        self.adaptive_dynmax_progress_end = max(self.adaptive_dynmax_progress_start + 1e-6, min(float(adaptive_dynmax_progress_end), 1.0))
+        self.adaptive_dynmax_final_trigger = max(0.0, min(float(adaptive_dynmax_final_trigger), 1.5))
+        self.adaptive_dynmax_final_target = max(0.0, min(float(adaptive_dynmax_final_target), self.adaptive_dynmax_final_trigger))
+        self.adaptive_dynmax_final_steps_ahead = max(1, int(adaptive_dynmax_final_steps_ahead))
+        self.adaptive_dynmax_final_max_actions = max(1, int(adaptive_dynmax_final_max_actions))
+        self.enable_proactive_eviction = bool(enable_proactive_eviction)
+        self.proactive_steps_ahead = max(1, int(proactive_steps_ahead))
+        self.proactive_trigger = max(0.0, min(float(proactive_trigger), 1.5))
+        self.proactive_target = max(0.0, min(float(proactive_target), self.proactive_trigger))
+        self.proactive_max_actions = max(1, int(proactive_max_actions))
 
         self.harp_token_time_ns_ema = 2_000_000.0
         self.harp_prefetch_last_time_ns = 0
@@ -101,6 +120,13 @@ class Scheduler:
             harp_fairness_epsilon=self.harp_fairness_epsilon,
             harp_compression_profile=self.harp_compression_profile,
             harp_compression_trace=self.harp_compression_trace,
+            adaptive_schedule=self.adaptive_dynmax_schedule,
+            adaptive_progress_start=self.adaptive_dynmax_progress_start,
+            adaptive_progress_end=self.adaptive_dynmax_progress_end,
+            adaptive_final_trigger=self.adaptive_dynmax_final_trigger,
+            adaptive_final_target=self.adaptive_dynmax_final_target,
+            adaptive_final_steps_ahead=self.adaptive_dynmax_final_steps_ahead,
+            adaptive_final_max_actions=self.adaptive_dynmax_final_max_actions,
         )
         # lists are sorted in arrival time manner
         self.request = [] # list of requests
@@ -145,6 +171,12 @@ class Scheduler:
             'harp_shadow_ratio_events': 0,
             'harp_shadow_eviction_events': 0,
             'harp_cold_eviction_events': 0,
+            'proactive_trigger_count': 0,
+            'proactive_evict_events': 0,
+            'proactive_evict_bytes': 0,
+            'adaptive_early_checks': 0,
+            'adaptive_transition_checks': 0,
+            'adaptive_late_checks': 0,
         }
 
         # logger
@@ -158,7 +190,32 @@ class Scheduler:
             return self.schedule_base(current, sys, batch_id)
 
     def _is_harp_enabled(self):
-        return self.kv_eviction_policy == "harp"
+        return self.kv_eviction_policy in ("harp", "dynmax", "adaptive_dynmax")
+
+    def _is_proactive_enabled(self):
+        return self.enable_proactive_eviction and self._is_harp_enabled() and not self.enable_prefix_caching
+
+    def _get_proactive_settings(self):
+        settings = {
+            'phase': 'fixed',
+            'progress': None,
+            'trigger': self.proactive_trigger,
+            'target': self.proactive_target,
+            'steps_ahead': self.proactive_steps_ahead,
+            'max_actions': self.proactive_max_actions,
+        }
+
+        if hasattr(self.eviction_policy, 'get_adaptive_proactive_settings'):
+            adaptive_settings = self.eviction_policy.get_adaptive_proactive_settings(self)
+            if isinstance(adaptive_settings, dict):
+                settings.update(adaptive_settings)
+
+        settings['trigger'] = max(0.0, min(float(settings.get('trigger', self.proactive_trigger)), 1.5))
+        settings['target'] = max(0.0, min(float(settings.get('target', self.proactive_target)), settings['trigger']))
+        settings['steps_ahead'] = max(1, int(settings.get('steps_ahead', self.proactive_steps_ahead)))
+        settings['max_actions'] = max(1, int(settings.get('max_actions', self.proactive_max_actions)))
+        settings['phase'] = str(settings.get('phase', 'fixed'))
+        return settings
 
     def _collect_active_requests(self):
         active = []
@@ -175,6 +232,77 @@ class Scheduler:
                 seen.add(req.id)
                 active.append(req)
         return active
+
+    def _collect_active_decode_requests(self):
+        return [req for req in self._collect_active_requests() if not req.is_init]
+
+    def _projected_memory_usage(self, steps_ahead=None):
+        if steps_ahead is None:
+            steps_ahead = self.proactive_steps_ahead
+        steps_ahead = max(1, int(steps_ahead))
+
+        current_used = max(0, int(self.memory.npu_used))
+        bytes_per_token = max(1, int(self.memory.get_kv(1)))
+        active_decode = len(self._collect_active_decode_requests())
+        projected_growth = active_decode * bytes_per_token * steps_ahead
+        return current_used + projected_growth
+
+    def _memory_pressure_ratio(self, steps_ahead=None):
+        projected = float(self._projected_memory_usage(steps_ahead=steps_ahead))
+        total = max(1.0, float(self.memory.npu_mem))
+        return projected / total
+
+    def _maybe_proactive_evict(self, current):
+        del current
+        if not self._is_proactive_enabled():
+            return
+
+        if not self._collect_active_decode_requests():
+            return
+
+        settings = self._get_proactive_settings()
+        phase_key = f"adaptive_{settings['phase']}_checks"
+        if phase_key in self.tier_stats:
+            self.tier_stats[phase_key] += 1
+        if phase_key not in self.tier_stats:
+            phase_key = None
+
+        pressure = self._memory_pressure_ratio(steps_ahead=settings['steps_ahead'])
+        if pressure < settings['trigger']:
+            return
+
+        self.tier_stats['proactive_trigger_count'] += 1
+        gen_req = self._collect_active_decode_requests()
+        evict_pool = self._build_evict_pool(gen_req)
+
+        actions = 0
+        while actions < settings['max_actions']:
+            if self._memory_pressure_ratio(steps_ahead=settings['steps_ahead']) <= settings['target']:
+                break
+
+            evict_action = self.eviction_policy.select_action(evict_pool, self)
+            if evict_action is None:
+                break
+
+            evicted_req = evict_action.req
+            cur_evict_size = int(evict_action.raw_bytes)
+            if cur_evict_size <= 0:
+                evict_pool = [req for req in evict_pool if req.id != evicted_req.id]
+                continue
+
+            (
+                evicted_req,
+                cur_evict_size,
+                _stored_evict_size,
+                _evict_target_device,
+                _compression_ratio,
+            ) = self._harp_apply_eviction_action(evict_action)
+            self._harp_update_fairness_after_eviction(evict_pool, evicted_req)
+
+            self.tier_stats['proactive_evict_events'] += 1
+            self.tier_stats['proactive_evict_bytes'] += cur_evict_size
+            evict_pool = [req for req in evict_pool if req.id != evicted_req.id]
+            actions += 1
 
     def _harp_decay_fairness_debt(self):
         if not self._is_harp_enabled():
@@ -413,6 +541,7 @@ class Scheduler:
             if self._is_harp_enabled():
                 self._harp_progress_prefetch(current)
                 self._harp_decay_fairness_debt()
+                self._maybe_proactive_evict(current)
 
             # nothing to batch return None
             if len(self.request) != 0 and self.request[0].arrival > current:
@@ -1191,6 +1320,14 @@ class Scheduler:
             print(f"HARP prefetch:       {self.tier_stats['harp_prefetch_bytes_progress']/MB:>10.2f} MB progressed, overlap ratio {overlap_ratio:>6.3f}")
             print(f"HARP stalls:         {self.tier_stats['harp_stall_events']:>6} events, {self.tier_stats['harp_stall_time_ns']/1e6:>10.2f} ms total")
             print(f"HARP shadow hits:    {self.tier_stats['harp_shadow_hit_tokens']:>6} tokens, hit rate {shadow_hit_rate:>6.3f}, avg ratio {avg_shadow_ratio:>5.2f}")
+        if self.tier_stats['adaptive_early_checks'] > 0 or self.tier_stats['adaptive_transition_checks'] > 0 or self.tier_stats['adaptive_late_checks'] > 0:
+            print(
+                f"Adaptive phases:     early {self.tier_stats['adaptive_early_checks']:>6} checks, "
+                f"transition {self.tier_stats['adaptive_transition_checks']:>6} checks, "
+                f"late {self.tier_stats['adaptive_late_checks']:>6} checks"
+            )
+        if self.tier_stats['proactive_trigger_count'] > 0 or self.tier_stats['proactive_evict_events'] > 0:
+            print(f"Proactive triggers:  {self.tier_stats['proactive_trigger_count']:>6} checks, {self.tier_stats['proactive_evict_events']:>6} evictions, {self.tier_stats['proactive_evict_bytes']/MB:>10.2f} MB")
 
         moved_keys = [
             'evict_npu_to_cpu_bytes',

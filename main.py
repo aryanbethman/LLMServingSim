@@ -24,6 +24,20 @@ import sys as flush
 from pyinstrument import Profiler
 
 
+class _TeeStream:
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for stream in self._streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self._streams:
+            stream.flush()
+
+
 def main():
     # ----------------------------------------------------------------------------------------------
     # LLMServingSim runs in astra-sim directory for easy path configuration
@@ -54,6 +68,7 @@ def main():
     parser.add_argument('--dataset', type=str, help='dataset path', default=None)
     parser.add_argument('--output', type=str, help='output path', default=None)
     parser.add_argument('--timeseries-output', type=str, help='path for time-series CSV of per-interval memory/cache metrics', default=None)
+    parser.add_argument('--stdout-log', type=str, help='optional path to mirror stdout/stderr logs', default=None)
     parser.add_argument('--gen', action='store_false', default=True, help='skip initiation phase')
     parser.add_argument('--num-req', type=int, help='number of requests to use', default=100)
     parser.add_argument('--log-interval', type=float, help='interval to log throughput (sec)', default=0.5)
@@ -122,8 +137,47 @@ def main():
         default='',
         help='optional path to JSON/CSV ratio-sensitivity trace for HARP compression modeling',
     )
+    parser.add_argument(
+        '--adaptive-dynmax-schedule',
+        type=str,
+        choices=['linear'],
+        default='linear',
+        help='adaptive DynMax schedule mode',
+    )
+    parser.add_argument('--adaptive-dynmax-progress-start', type=float, default=0.10,
+                        help='progress ratio where adaptive DynMax starts decaying proactivity')
+    parser.add_argument('--adaptive-dynmax-progress-end', type=float, default=0.75,
+                        help='progress ratio where adaptive DynMax reaches its final setting')
+    parser.add_argument('--adaptive-dynmax-final-trigger', type=float, default=1.05,
+                        help='final proactive trigger ratio for adaptive DynMax')
+    parser.add_argument('--adaptive-dynmax-final-target', type=float, default=0.92,
+                        help='final proactive target ratio for adaptive DynMax')
+    parser.add_argument('--adaptive-dynmax-final-steps-ahead', type=int, default=12,
+                        help='final lookahead horizon for adaptive DynMax proactive eviction')
+    parser.add_argument('--adaptive-dynmax-final-max-actions', type=int, default=1,
+                        help='final proactive action budget for adaptive DynMax')
+    parser.add_argument('--enable-proactive-eviction', action='store_true', default=False,
+                        help='enable proactive KV eviction under projected NPU memory pressure (HARP/DynMax)')
+    parser.add_argument('--proactive-steps-ahead', type=int, default=32,
+                        help='decode steps used for projected NPU memory pressure forecast')
+    parser.add_argument('--proactive-trigger', type=float, default=0.85,
+                        help='projected pressure ratio threshold to trigger proactive eviction')
+    parser.add_argument('--proactive-target', type=float, default=0.70,
+                        help='projected pressure ratio target after proactive eviction')
+    parser.add_argument('--proactive-max-actions', type=int, default=2,
+                        help='maximum proactive eviction actions per scheduler tick')
 
     args = parser.parse_args()
+
+    if args.stdout_log:
+        if os.path.isabs(args.stdout_log):
+            stdout_log_path = args.stdout_log
+        else:
+            stdout_log_path = os.path.join(cwd, args.stdout_log)
+        os.makedirs(os.path.dirname(stdout_log_path), exist_ok=True)
+        stdout_log_file = open(stdout_log_path, "w", encoding="utf-8")
+        flush.stdout = _TeeStream(flush.stdout, stdout_log_file)
+        flush.stderr = _TeeStream(flush.stderr, stdout_log_file)
 
     print_logo()
     print_input_config(args=args)
@@ -192,6 +246,18 @@ def main():
     harp_fairness_epsilon = float(args.harp_fairness_epsilon)
     harp_compression_profile = str(args.harp_compression_profile)
     harp_compression_trace = str(args.harp_compression_trace or '')
+    adaptive_dynmax_schedule = str(args.adaptive_dynmax_schedule)
+    adaptive_dynmax_progress_start = float(args.adaptive_dynmax_progress_start)
+    adaptive_dynmax_progress_end = float(args.adaptive_dynmax_progress_end)
+    adaptive_dynmax_final_trigger = float(args.adaptive_dynmax_final_trigger)
+    adaptive_dynmax_final_target = float(args.adaptive_dynmax_final_target)
+    adaptive_dynmax_final_steps_ahead = int(args.adaptive_dynmax_final_steps_ahead)
+    adaptive_dynmax_final_max_actions = int(args.adaptive_dynmax_final_max_actions)
+    enable_proactive_eviction = bool(args.enable_proactive_eviction)
+    proactive_steps_ahead = int(args.proactive_steps_ahead)
+    proactive_trigger = float(args.proactive_trigger)
+    proactive_target = float(args.proactive_target)
+    proactive_max_actions = int(args.proactive_max_actions)
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
     num_nodes = cluster["num_nodes"]
@@ -312,7 +378,13 @@ def main():
             evicpress_alpha, evicpress_ratios,
             harp_grace_candidates, harp_ratios,
             harp_lambda_stall, harp_lambda_quality, harp_lambda_fairness,
-            harp_fairness_epsilon, harp_compression_profile, harp_compression_trace
+            harp_fairness_epsilon, harp_compression_profile, harp_compression_trace,
+            adaptive_dynmax_schedule, adaptive_dynmax_progress_start,
+            adaptive_dynmax_progress_end, adaptive_dynmax_final_trigger,
+            adaptive_dynmax_final_target, adaptive_dynmax_final_steps_ahead,
+            adaptive_dynmax_final_max_actions,
+            enable_proactive_eviction, proactive_steps_ahead,
+            proactive_trigger, proactive_target, proactive_max_actions
         ))
 
     # Controller for astra-sim process communication
@@ -332,7 +404,7 @@ def main():
         # Manually adding request
         for i in range(16):      # seq_len, end_len, arrival_time, instance_id
             for sched in schedulers:
-                sched.add_reqeust([i, sched.model, 64, 128, 0, i % num_instances])
+                sched.add_request([i, sched.model, 64, 128, 0, i % num_instances])
 
     # Simulator start
     current = 0 # current tick of the system
