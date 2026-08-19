@@ -10,6 +10,13 @@ class Request:
         self.is_init = is_init
         self.original_input = input
         self.evict = False
+        self.evict_device = None   # Device enum: where KV was evicted to (CXL or CPU)
+        # Per-request tier movement attribution for post-run analysis.
+        self.last_kv_load_tier = "NPU"
+        self.evict_npu_to_cpu_bytes = 0
+        self.evict_npu_to_cxl_bytes = 0
+        self.load_cpu_to_npu_bytes = 0
+        self.load_cxl_to_npu_bytes = 0
         self.end_time = -1
         self.latency = -1
         self.queuing_delay = -1
@@ -46,6 +53,8 @@ class Request:
         del self.original_input
         del self.is_init
         del self.evict
+        if hasattr(self, 'evict_device'):
+            del self.evict_device
     
     def add_itl(self, current):
         self.itl.append(current - self.recent_end)
@@ -61,7 +70,7 @@ class Request:
 
 # class that manages batch of astra-sim
 class Batch:
-    def __init__(self, batch_id, model, total_len, kv_len, hit_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, batch_time, kv_size, evict=0, load=0):
+    def __init__(self, batch_id, model, total_len, kv_len, hit_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, batch_time, kv_size, evict=0, load=0, evict_cxl=0, load_cxl=0):
         self.batch_id = batch_id
         self.model = model
         self.total_len = total_len
@@ -75,6 +84,8 @@ class Batch:
         self.kv_size = kv_size
         self.evict = evict
         self.load = load
+        self.evict_cxl = evict_cxl   # bytes evicted NPU → CXL
+        self.load_cxl = load_cxl     # bytes loaded  CXL → NPU
         # for attn prediction
         self.q_list = q_list
         self.k_list = k_list

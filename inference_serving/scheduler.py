@@ -45,6 +45,26 @@ class Scheduler:
         # memory model
         self.memory = MemoryModel(model, instance_id, node_id, npu_num, npu_group, npu_mem, cpu_mem, block_size, fp, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem)
 
+        # --- Tier transition counters for tiered KV cache analysis ---
+        self.tier_stats = {
+            'evict_npu_to_cpu_bytes': 0,
+            'evict_npu_to_cpu_count': 0,
+            'evict_npu_to_cxl_bytes': 0,
+            'evict_npu_to_cxl_count': 0,
+            'load_cpu_to_npu_bytes': 0,
+            'load_cpu_to_npu_count': 0,
+            'load_cxl_to_npu_bytes': 0,
+            'load_cxl_to_npu_count': 0,
+            'evict_npu_prefix_bytes': 0,
+            'evict_npu_prefix_count': 0,
+            'evict_storage_prefix_bytes': 0,
+            'evict_storage_prefix_count': 0,
+            'prefix_load_storage_to_npu_bytes': 0,
+            'prefix_load_storage_to_npu_count': 0,
+            'storage_cache_evicted_req_bytes': 0,
+            'storage_cache_evicted_req_count': 0,
+        }
+
         # logger
         self.logger = get_logger(self.__class__, node_id=node_id, instance_id=instance_id)
     
@@ -80,6 +100,7 @@ class Scheduler:
 
             kv_size = 0
             evict_size = 0
+            evict_cxl_size = 0
             gen_req = [req for req in batch_req if not req.is_init]
             
             if self.prioritize_prefill:
@@ -110,13 +131,29 @@ class Scheduler:
                     continue
 
                 # else
-                evict_size = self.memory.get_evict_kv(gen_req[-1])
-                gen_req[-1].evict = True
-                self.logger.info("Eviction of the request #%d", gen_req[-1].id)
+                evicted_req = gen_req[-1]
+                cur_evict_size = self.memory.get_evict_kv(evicted_req)
+                evicted_req.evict = True
+                self.logger.info("Eviction of the request #%d", evicted_req.id)
                 gen_req = gen_req[:-1]
-                # spill to cpu (host) memory
-                self.memory.free(evict_size, Device.NPU)
-                self.memory.allocate(evict_size, Device.CPU)
+                # spill to CXL first, fall back to CPU
+                self.memory.free(cur_evict_size, Device.NPU)
+                if self.memory.cxl_mem > 0 and self.memory.is_avail(cur_evict_size, Device.CXL):
+                    self.memory.allocate(cur_evict_size, Device.CXL)
+                    evicted_req.evict_device = Device.CXL
+                    evicted_req.evict_npu_to_cxl_bytes += cur_evict_size
+                    evict_cxl_size += cur_evict_size
+                    self.tier_stats['evict_npu_to_cxl_bytes'] += cur_evict_size
+                    self.tier_stats['evict_npu_to_cxl_count'] += 1
+                    self.logger.info("Evicted to CXL (%d bytes)", cur_evict_size)
+                else:
+                    self.memory.allocate(cur_evict_size, Device.CPU)
+                    evicted_req.evict_device = Device.CPU
+                    evicted_req.evict_npu_to_cpu_bytes += cur_evict_size
+                    evict_size += cur_evict_size
+                    self.tier_stats['evict_npu_to_cpu_bytes'] += cur_evict_size
+                    self.tier_stats['evict_npu_to_cpu_count'] += 1
+                    self.logger.info("Evicted to CPU (%d bytes)", cur_evict_size)
 
                 if len(gen_req) < batch_len:
                     batch_len = len(gen_req)
@@ -131,6 +168,7 @@ class Scheduler:
             batch_len = temp_len
             batch_req = batch_req[:batch_len]
             load_size = 0
+            load_cxl_size = 0
 
             # check max_num_batched_tokens constraint
             total_len = 0
@@ -160,18 +198,44 @@ class Scheduler:
                         break
 
                 if req.evict:
-                    # load evicted kv cache
-                    load_size += self.memory.get_evict_kv(req)
+                    # load evicted kv cache from whichever tier it was evicted to
+                    kv_bytes = self.memory.get_evict_kv(req)
+                    if req.evict_device == Device.CXL:
+                        load_cxl_size += kv_bytes
+                        req.load_cxl_to_npu_bytes += kv_bytes
+                        req.last_kv_load_tier = "CXL"
+                    elif req.evict_device == Device.CPU:
+                        load_size += kv_bytes
+                        req.load_cpu_to_npu_bytes += kv_bytes
+                        req.last_kv_load_tier = "CPU"
+                    else:
+                        # Defensive fallback: route unknown eviction source through CPU path.
+                        load_size += kv_bytes
+                        req.load_cpu_to_npu_bytes += kv_bytes
+                        req.last_kv_load_tier = "CPU"
+                        self.logger.warning(
+                            "Request #%d had unknown evict_device; defaulted reload to CPU",
+                            req.id,
+                        )
                     req.evict = False
+                    req.evict_device = None
                     self.logger.info("Loading the request #%d", req.id)
 
             # Allocate Needed KV caches for current batch
             if kv_size > 0:
                 self.memory.allocate(kv_size, Device.NPU)
             
+            # load memory from CXL
+            if load_cxl_size > 0:
+                self.memory.free(load_cxl_size, Device.CXL)
+                self.tier_stats['load_cxl_to_npu_bytes'] += load_cxl_size
+                self.tier_stats['load_cxl_to_npu_count'] += 1
+
             # load memory from cpu (host)
             if load_size > 0:
                 self.memory.free(load_size, Device.CPU)
+                self.tier_stats['load_cpu_to_npu_bytes'] += load_size
+                self.tier_stats['load_cpu_to_npu_count'] += 1
             
             total_len = 0
             kv_len = 0
@@ -202,7 +266,7 @@ class Scheduler:
 
             # make batch, output doesn't matter here!! always one iteration
             # batch is also 1
-            batch = Batch(self.get_batch_id(), self.model, total_len, kv_len, hit_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, current, kv_size, evict_size, load_size)
+            batch = Batch(self.get_batch_id(), self.model, total_len, kv_len, hit_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, current, kv_size, evict_size, load_size, evict_cxl_size, load_cxl_size)
             # add alredy fired system
             batch.fired.append(sys)
             batch.requests.extend(batch_req)
@@ -363,6 +427,8 @@ class Scheduler:
             if evict_size > 0:
                 # self.memory.npu_evict_prefix_cache(evict_size)
                 self.memory.evict_prefix_cache(evict_size, Device.NPU)
+                self.tier_stats['evict_npu_prefix_bytes'] += evict_size
+                self.tier_stats['evict_npu_prefix_count'] += 1
 
             evict_load_size = 0
             prefix_load_size = 0
@@ -374,7 +440,10 @@ class Scheduler:
 
                 if req.is_init and req.storage_cache_hit > req.prefix_cache_hit:
                     # load prefix cache
-                    prefix_load_size += (req.storage_cache_hit - req.prefix_cache_hit) * self.memory.get_kv(1)
+                    _pls = (req.storage_cache_hit - req.prefix_cache_hit) * self.memory.get_kv(1)
+                    prefix_load_size += _pls
+                    self.tier_stats['prefix_load_storage_to_npu_bytes'] += _pls
+                    self.tier_stats['prefix_load_storage_to_npu_count'] += 1
 
                 if req.evict:
                     # load evicted kv cache
@@ -384,6 +453,10 @@ class Scheduler:
                     # self.memory.cpu_unlock_prefix(req)
                     if self.prefix_storage is not None:
                         self.memory.unlock_prefix(req, Device.CPU)
+                        if self.prefix_storage == Device.CXL:
+                            req.last_kv_load_tier = "CXL"
+                        elif self.prefix_storage == Device.CPU:
+                            req.last_kv_load_tier = "CPU"
                     evict_load_size += self.memory.get_evict_kv(req)
                     req.evict = False
                     self.logger.info("Loading the request #%d", req.id)
@@ -412,6 +485,8 @@ class Scheduler:
                 if storage_evict_size > 0:
                     # self.memory.cpu_evict_prefix_cache(cpu_evict_size)
                     self.memory.evict_prefix_cache(storage_evict_size, self.prefix_storage)
+                    self.tier_stats['evict_storage_prefix_bytes'] += storage_evict_size
+                    self.tier_stats['evict_storage_prefix_count'] += 1
 
             for req in batch_req:
                 # Update the prefix cache for incoming batch
@@ -438,7 +513,10 @@ class Scheduler:
             # cpu need to hold evicted cache
             if self.prefix_storage is not None:
                 for req in evicted_req:
+                    _evict_kv = self.memory.get_total_kv(req) * self.npu_num
                     self.memory.storage_cache_evicted_req(req)
+                    self.tier_stats['storage_cache_evicted_req_bytes'] += _evict_kv
+                    self.tier_stats['storage_cache_evicted_req_count'] += 1
 
             
             # For debugging
@@ -668,6 +746,60 @@ class Scheduler:
         else:
             print("No ITL data available")
 
+    # print tier transition statistics
+    def print_tier_stats(self):
+        MB = 1024 * 1024
+        print("----------------------------KV Cache Tier Statistics----------------------------")
+        print(f"NPU→CPU evictions:   {self.tier_stats['evict_npu_to_cpu_count']:>6} events, {self.tier_stats['evict_npu_to_cpu_bytes']/MB:>10.2f} MB")
+        print(f"NPU→CXL evictions:   {self.tier_stats['evict_npu_to_cxl_count']:>6} events, {self.tier_stats['evict_npu_to_cxl_bytes']/MB:>10.2f} MB")
+        print(f"CPU→NPU reloads:     {self.tier_stats['load_cpu_to_npu_count']:>6} events, {self.tier_stats['load_cpu_to_npu_bytes']/MB:>10.2f} MB")
+        print(f"CXL→NPU reloads:     {self.tier_stats['load_cxl_to_npu_count']:>6} events, {self.tier_stats['load_cxl_to_npu_bytes']/MB:>10.2f} MB")
+        print(f"NPU prefix evictions:{self.tier_stats['evict_npu_prefix_count']:>6} events, {self.tier_stats['evict_npu_prefix_bytes']/MB:>10.2f} MB")
+        print(f"Storage prefix evict:{self.tier_stats['evict_storage_prefix_count']:>6} events, {self.tier_stats['evict_storage_prefix_bytes']/MB:>10.2f} MB")
+        print(f"Storage→NPU prefix:  {self.tier_stats['prefix_load_storage_to_npu_count']:>6} events, {self.tier_stats['prefix_load_storage_to_npu_bytes']/MB:>10.2f} MB")
+        print(f"Evicted→Storage:     {self.tier_stats['storage_cache_evicted_req_count']:>6} events, {self.tier_stats['storage_cache_evicted_req_bytes']/MB:>10.2f} MB")
+        total_moved = sum(v for k, v in self.tier_stats.items() if k.endswith('_bytes'))
+        print(f"Total data moved:                                              {total_moved/MB:>10.2f} MB")
+
+    def get_request_tier_totals(self):
+        totals = {
+            'evict_npu_to_cpu_bytes': 0,
+            'evict_npu_to_cxl_bytes': 0,
+            'load_cpu_to_npu_bytes': 0,
+            'load_cxl_to_npu_bytes': 0,
+        }
+
+        for req in self.done:
+            totals['evict_npu_to_cpu_bytes'] += getattr(req, 'evict_npu_to_cpu_bytes', 0)
+            totals['evict_npu_to_cxl_bytes'] += getattr(req, 'evict_npu_to_cxl_bytes', 0)
+            totals['load_cpu_to_npu_bytes'] += getattr(req, 'load_cpu_to_npu_bytes', 0)
+            totals['load_cxl_to_npu_bytes'] += getattr(req, 'load_cxl_to_npu_bytes', 0)
+
+        totals['tier_transition_bytes_total'] = (
+            totals['evict_npu_to_cpu_bytes'] +
+            totals['evict_npu_to_cxl_bytes'] +
+            totals['load_cpu_to_npu_bytes'] +
+            totals['load_cxl_to_npu_bytes']
+        )
+        return totals
+
+    def validate_tier_accounting(self):
+        req_totals = self.get_request_tier_totals()
+        keys = [
+            'evict_npu_to_cpu_bytes',
+            'evict_npu_to_cxl_bytes',
+            'load_cpu_to_npu_bytes',
+            'load_cxl_to_npu_bytes',
+        ]
+        deltas = {}
+        ok = True
+        for key in keys:
+            delta = req_totals[key] - self.tier_stats.get(key, 0)
+            deltas[key] = delta
+            if delta != 0:
+                ok = False
+        return ok, req_totals, deltas
+
     # print each request results
     def print_request_result(self):
         # sort in id order
@@ -695,7 +827,12 @@ class Scheduler:
             if not is_append:
                 writer.writerow(['instance id', 'request id', 'model', 'input', 'output', 
                                 'arrival', 'end_time', 'latency', 
-                                'queuing_delay', 'TTFT', 'TPOT', 'ITL'])
+                                'queuing_delay', 'TTFT', 'TPOT', 'ITL',
+                                'npu_cache_hit', 'storage_cache_hit', 'prefix_cache_hit',
+                                'tier_reload_source',
+                                'evict_npu_to_cpu_bytes', 'evict_npu_to_cxl_bytes',
+                                'load_cpu_to_npu_bytes', 'load_cxl_to_npu_bytes',
+                                'tier_transition_bytes_total'])
             
             # Write each request's information
             for req in self.done:
@@ -711,5 +848,19 @@ class Scheduler:
                     req.queuing_delay,
                     req.ttft,
                     req.tpot,
-                    req.itl
+                    req.itl,
+                    getattr(req, 'npu_cache_hit', 0),
+                    getattr(req, 'storage_cache_hit', 0),
+                    getattr(req, 'prefix_cache_hit', 0),
+                    getattr(req, 'last_kv_load_tier', 'NPU'),
+                    getattr(req, 'evict_npu_to_cpu_bytes', 0),
+                    getattr(req, 'evict_npu_to_cxl_bytes', 0),
+                    getattr(req, 'load_cpu_to_npu_bytes', 0),
+                    getattr(req, 'load_cxl_to_npu_bytes', 0),
+                    (
+                        getattr(req, 'evict_npu_to_cpu_bytes', 0)
+                        + getattr(req, 'evict_npu_to_cxl_bytes', 0)
+                        + getattr(req, 'load_cpu_to_npu_bytes', 0)
+                        + getattr(req, 'load_cxl_to_npu_bytes', 0)
+                    ),
                 ])

@@ -4,6 +4,7 @@ import argparse
 import json
 from time import time
 from collections import defaultdict
+import csv as csv_module
 
 from inference_serving.scheduler import *
 from inference_serving.request import *
@@ -51,6 +52,7 @@ def main():
     parser.add_argument('--block-size', type=int, help='kv cache block size unit of tokens', default=16)
     parser.add_argument('--dataset', type=str, help='dataset path', default=None)
     parser.add_argument('--output', type=str, help='output path', default=None)
+    parser.add_argument('--timeseries-output', type=str, help='path for time-series CSV of per-interval memory/cache metrics', default=None)
     parser.add_argument('--gen', action='store_false', default=True, help='skip initiation phase')
     parser.add_argument('--num-req', type=int, help='number of requests to use', default=100)
     parser.add_argument('--log-interval', type=float, help='interval to log throughput (sec)', default=0.5)
@@ -89,6 +91,7 @@ def main():
     prioritize_prefill=args.prioritize_prefill
     dataset=args.dataset
     output_file=args.output
+    timeseries_output=args.timeseries_output
     is_init=args.gen
     num_req=args.num_req
     log_interval=args.log_interval
@@ -269,6 +272,30 @@ def main():
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
     # ----------------------------------- Start simulation loop ------------------------------------
+    # Open time-series CSV if requested
+    ts_csv_file = None
+    ts_csv_writer = None
+    if timeseries_output:
+        ts_csv_path = os.path.join(cwd, timeseries_output)
+        os.makedirs(os.path.dirname(ts_csv_path), exist_ok=True) if os.path.dirname(ts_csv_path) else None
+        ts_csv_file = open(ts_csv_path, 'w', newline='')
+        ts_csv_writer = csv_module.writer(ts_csv_file)
+        ts_csv_writer.writerow([
+            'sim_time_ns', 'instance_id',
+            'npu_used_bytes', 'npu_total_bytes',
+            'cpu_used_bytes', 'cpu_total_bytes',
+            'cxl_used_bytes', 'cxl_total_bytes',
+            'npu_prefix_tokens', 'storage_prefix_tokens',
+            'evictable_tokens', 'protected_tokens',
+            'npu_hit_total', 'storage_hit_total',
+            'npu_hit_interval', 'storage_hit_interval', 'npu_hit_rate_interval',
+            'prompt_throughput', 'gen_throughput',
+            'evict_npu_to_cpu_bytes_total', 'load_cpu_to_npu_bytes_total',
+            'evict_npu_to_cxl_bytes_total', 'load_cxl_to_npu_bytes_total',
+            'evict_npu_prefix_bytes_total', 'evict_storage_prefix_bytes_total',
+            'prefix_load_storage_to_npu_bytes_total',
+        ])
+
     # Starting simulation, one while loop processes one iteration
     while True:
         out = controller.read_wait(p)
@@ -417,6 +444,50 @@ def main():
                 tree_indent = '└─'
                 print(f"{log_indent+tree_indent}Avg power consumption: {power_model.get_current_power(current)} W")
 
+            # Write time-series CSV rows
+            if ts_csv_writer:
+                for inst_id in range(num_instances):
+                    mem = schedulers[inst_id].memory
+                    npu_prefix_tokens = 0
+                    storage_prefix_tokens = 0
+                    evictable_tokens = 0
+                    protected_tokens = 0
+                    npu_hit_total = 0
+                    storage_hit_total = 0
+                    npu_hit_interval = 0
+                    storage_hit_interval = 0
+                    npu_hit_rate_interval = 0.0
+
+                    if enable_prefix_caching:
+                        npu_prefix_tokens = mem.npu_prefix_cache.total_size()
+                        evictable_tokens = mem.npu_prefix_cache.evictable_size()
+                        protected_tokens = mem.npu_prefix_cache.protected_size()
+                        npu_hit_total = mem.npu_prefix_cache.total_hit_tokens
+                        _, npu_hit_interval, npu_hit_rate_interval = mem.npu_prefix_cache.get_interval_hit_rate()
+
+                        if hasattr(mem, 'second_tier_prefix_cache') and mem.second_tier_prefix_cache is not None:
+                            storage_prefix_tokens = mem.second_tier_prefix_cache.total_size()
+                            storage_hit_total = mem.second_tier_prefix_cache.total_hit_tokens
+                            _, storage_hit_interval, _ = mem.second_tier_prefix_cache.get_interval_hit_rate()
+
+                    ts = schedulers[inst_id].tier_stats
+                    ts_csv_writer.writerow([
+                        int(last_log), inst_id,
+                        int(mem.npu_used), int(mem.npu_mem),
+                        int(mem.cpu_used), int(mem.cpu_mem),
+                        int(mem.cxl_used), int(mem.cxl_mem),
+                        npu_prefix_tokens, storage_prefix_tokens,
+                        evictable_tokens, protected_tokens,
+                        npu_hit_total, storage_hit_total,
+                        npu_hit_interval, storage_hit_interval, f"{npu_hit_rate_interval:.2f}",
+                        int(prompt_th * RATIO), int(gen_th * RATIO),
+                        ts['evict_npu_to_cpu_bytes'], ts['load_cpu_to_npu_bytes'],
+                        ts['evict_npu_to_cxl_bytes'], ts['load_cxl_to_npu_bytes'],
+                        ts['evict_npu_prefix_bytes'], ts['evict_storage_prefix_bytes'],
+                        ts['prefix_load_storage_to_npu_bytes'],
+                    ])
+                ts_csv_file.flush()
+
         # check if all requests are done for current instance
         if (instance_id not in decode_instance or is_prefill_done) and instance_id not in done_instance and schedulers[instance_id].is_request_empty():
             if sys not in done_inst_npus[instance_id]:
@@ -522,6 +593,18 @@ def main():
         print(magenta(center(f"Instance [{i}]")))
         print(SINGLE_BAR)
         schedulers[i].print_result()
+        schedulers[i].print_tier_stats()
+        acc_ok, req_totals, acc_deltas = schedulers[i].validate_tier_accounting()
+        if acc_ok:
+            print("Tier accounting check:                                             PASS")
+        else:
+            print("Tier accounting check:                                             WARNING")
+            print("Request-tier totals and scheduler-tier totals do not match.")
+            print(f"  evict_npu_to_cpu_bytes delta:                                   {acc_deltas['evict_npu_to_cpu_bytes']}")
+            print(f"  evict_npu_to_cxl_bytes delta:                                   {acc_deltas['evict_npu_to_cxl_bytes']}")
+            print(f"  load_cpu_to_npu_bytes delta:                                    {acc_deltas['load_cpu_to_npu_bytes']}")
+            print(f"  load_cxl_to_npu_bytes delta:                                    {acc_deltas['load_cxl_to_npu_bytes']}")
+        print(f"Request-level transition bytes total:                             {req_totals['tier_transition_bytes_total']}")
         print(SINGLE_BAR)
     
     # Important informations about metrics
@@ -535,6 +618,22 @@ def main():
         print(f"Saving each request's information to output file: {output_file}")
         for i in range(num_instances):
             schedulers[i].save_output(output_file, is_append=False if i == 0 else True)
+
+    # Save tier stats JSON alongside the output file
+    if output_file is not None:
+        tier_stats_path = os.path.join(cwd, output_file.replace('.csv', '_tier_stats.json'))
+        os.makedirs(os.path.dirname(tier_stats_path), exist_ok=True) if os.path.dirname(tier_stats_path) else None
+        all_tier_stats = {}
+        for i in range(num_instances):
+            all_tier_stats[f"instance_{i}"] = schedulers[i].tier_stats
+        with open(tier_stats_path, 'w') as f:
+            json.dump(all_tier_stats, f, indent=2)
+        print(f"Saving tier stats to: {tier_stats_path}")
+
+    # Close time-series CSV
+    if ts_csv_file:
+        ts_csv_file.close()
+        print(f"Saved time-series metrics to: {timeseries_output}")
     
 
 if __name__ == "__main__":

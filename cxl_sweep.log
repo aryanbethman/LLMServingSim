@@ -1,0 +1,120 @@
+============================================================
+  CXL Memory Size Sweep
+  Sizes: [0, 4, 8, 16, 32, 64, 128, 256] GB
+  Workloads: ['sharegpt_300', 'fixed_256']
+============================================================
+
+── Generating configs ──
+  Config: sweep_no_cxl.json  (CXL = 0 GB)
+  Config: sweep_cxl_4GB.json  (CXL = 4 GB)
+  Config: sweep_cxl_8GB.json  (CXL = 8 GB)
+  Config: sweep_cxl_16GB.json  (CXL = 16 GB)
+  Config: sweep_cxl_32GB.json  (CXL = 32 GB)
+  Config: sweep_cxl_64GB.json  (CXL = 64 GB)
+  Config: sweep_cxl_128GB.json  (CXL = 128 GB)
+  Config: sweep_cxl_256GB.json  (CXL = 256 GB)
+
+── Running experiments ──
+  [1/16] RUN  no_cxl/sharegpt_300 ...
+    NPU→CPU evictions:       29 events,     322.00 MB
+    NPU→CXL evictions:        0 events,       0.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [2/16] RUN  no_cxl/fixed_256 ...
+    NPU→CPU evictions:       35 events,     750.00 MB
+    NPU→CXL evictions:        0 events,       0.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [3/16] RUN  cxl_4GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [4/16] RUN  cxl_4GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [5/16] RUN  cxl_8GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [6/16] RUN  cxl_8GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [7/16] RUN  cxl_16GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [8/16] RUN  cxl_16GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [9/16] RUN  cxl_32GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [10/16] RUN  cxl_32GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [11/16] RUN  cxl_64GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [12/16] RUN  cxl_64GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [13/16] RUN  cxl_128GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [14/16] RUN  cxl_128GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+  [15/16] RUN  cxl_256GB/sharegpt_300 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       29 events,     322.00 MB
+    Total data moved:                                                  644.00 MB
+    OK
+  [16/16] RUN  cxl_256GB/fixed_256 ...
+    NPU→CPU evictions:        0 events,       0.00 MB
+    NPU→CXL evictions:       35 events,     750.00 MB
+    Total data moved:                                                 1500.00 MB
+    OK
+
+── Generating plots ──
+  Loaded 16 experiment results
+ cxl_gb     workload  mean_TTFT_ms  mean_TPOT_ms
+      0 sharegpt_300    440.979529     69.904869
+      0    fixed_256     78.694964     69.632505
+      4 sharegpt_300    441.048389     69.913448
+      4    fixed_256     78.694964     69.644411
+      8 sharegpt_300    441.048389     69.913448
+      8    fixed_256     78.694964     69.644411
+     16 sharegpt_300    441.048389     69.913448
+     16    fixed_256     78.694964     69.644411
+     32 sharegpt_300    441.048389     69.913448
+     32    fixed_256     78.694964     69.644411
+     64 sharegpt_300    441.048389     69.913448
+     64    fixed_256     78.694964     69.644411
+    128 sharegpt_300    441.048389     69.913448
+    128    fixed_256     78.694964     69.644411
+    256 sharegpt_300    441.048389     69.913448
+    256    fixed_256     78.694964     69.644411
+
+  Summary CSV: /home/marvell/LLMServingSim/figures/cxl_sweep/cxl_sweep_summary.csv
+  Figures saved to: /home/marvell/LLMServingSim/figures/cxl_sweep/
