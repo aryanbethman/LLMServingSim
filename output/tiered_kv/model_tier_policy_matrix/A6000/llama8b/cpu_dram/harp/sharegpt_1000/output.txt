@@ -1,0 +1,684 @@
+================================================================================
+[1m                                LLMServingSim2.0                                [0m
+[95m  A Unified Simulator for Heterogeneous Hardware and Serving Techniques in LLM  [0m
+================================================================================
+[96m     _    _    __  __ ___              _           ___ _       ___   __  
+    | |  | |  |  \/  / __| ___ _ ___ _(_)_ _  __ _/ __(_)_ __ |_  ) /  \ 
+    | |__| |__| |\/| \__ \/ -_) '_\ V / | ' \/ _` \__ \ | '  \ / / | () |
+    |____|____|_|  |_|___/\___|_|  \_/|_|_||_\__, |___/_|_|_|_/___(_)__/ 
+                                             |___/       [0m
+--------------------------------------------------------------------------------
+[95m                              Input configuration                               [0m
+
+  • [96mCluster config               [0m : output/tiered_kv/model_tier_policy_matrix/_generated_cluster_configs/llama8b__cpu_dram__A6000.json
+  • [96mDataset                      [0m : dataset/sharegpt_req1000_rate10_llama.jsonl
+  • [96mNum requests                 [0m : 1000
+  • [96mMax batch                    [0m : inf
+  • [96mMax batched tokens           [0m : 2048
+  • [96mBlock size (tokens)          [0m : 16
+  • [96mFP precision                 [0m : 16-bit
+  • [96mRequest routing              [0m : RR
+  • [96mExpert routing               [0m : FAST
+  • [96mKV eviction policy           [0m : harp
+  • [96mEVICPRESS alpha              [0m : 1.0
+  • [96mEVICPRESS ratios             [0m : 1.0,0.75,0.5,0.25
+  • [96mHARP grace candidates        [0m : 16,32,64
+  • [96mHARP ratios                  [0m : 1.0,0.75,0.5,0.25
+  • [96mHARP lambda stall            [0m : 1.0
+  • [96mHARP lambda quality          [0m : 0.5
+  • [96mHARP lambda fairness         [0m : 0.1
+  • [96mHARP fairness epsilon        [0m : 1e-06
+  • [96mHARP compression profile     [0m : balanced
+  • [96mHARP compression trace       [0m : N/A
+  • [96mPrefix caching               [0m : DISABLED
+  • [96mPrefix caching scheme        [0m : xPU-Only
+  • [96mCentralized prefix caching   [0m : DISABLED
+  • [96mOffload attention to PIM     [0m : DISABLED
+  • [96mSub-batch interleaving       [0m : DISABLED
+  • [96mRealtime attention prediction[0m : DISABLED
+  • [96mPrioritize prefill           [0m : DISABLED
+  • [96mNetwork backend              [0m : analytical
+  • [96mLog interval (s)             [0m : 0.5
+  • [96mLog level                    [0m : WARNING
+--------------------------------------------------------------------------------
+[1m[96m▶ Starting si[0.5s] [94mAvg promp[0.5s] [94mAvg prompt throughput: 78.0 tokens/s,[0m [94mAvg generation throughput: 54.0 tokens/s[0m
+        ├─Running Instance[0]: 3 reqs, Total # 1 NPUs, Each NPU Memory Usage 15328.51 MB (93.558 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.Traceback (most recen[1.0s] [94mAvg prompt throughput: 2148.0 tokens/s,[0m [94mAvg generation throughput: 178.0 tokens/s[0m
+        ├─Running Instance[0]: 9 reqs, Total # 1 NPUs, Each NPU Memory Usage 15476.51 MB (94.461 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[1.5s] [94mAvg prompt throughput: 1424.0 tokens/s,[0m [94mAvg generation throughput: 336.0 tokens/s[0m
+        ├─Running Instance[0]: 12 reqs, Total # 1 NPUs, Each NPU Memory Usage 15592.51 MB (95.169 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[2.0s] [94mAvg prompt throughput: 3586.0 tokens/s,[0m [94mAvg generation throughput: 278.0 tokens/s[0m
+        ├─Running Instance[0]: 23 reqs, Total # 1 NPUs, Each NPU Memory Usage 15848.51 MB (96.732 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[2.5s] [94mAvg prompt throughput: 842.0 tokens/s,[0m [94mAvg generation throughput: 818.0 tokens/s[0m
+        ├─Running Instance[0]: 29 reqs, Total # 1 NPUs, Each NPU Memory Usage 15950.51 MB (97.354 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[3.0s] [94mAvg prompt throughput: 2100.0 tokens/s,[0m [94mAvg generation throughput: 742.0 tokens/s[0m
+        ├─Running Instance[0]: 32 reqs, Total # 1 NPUs, Each NPU Memory Usage 16122.51 MB (98.404 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 53, in __init__
+    self.input_memory_size = int(col[3])
+                                 ~~~^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "E_387                         0              NONE                                                                                                                                   
+"
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 64, in __init__
+    self.comm_size = int(col[9])
+                     ~~~^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'o_proj_91'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "attn_90_91                    157538         LOCAL          27291648       LOCAL          0              LOCAL          1097728        NONpost_layernorm33159          o_proj_91      
+"
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 48, in __init__
+    self.comp_time = int(col[1])
+                     ~~~^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'model_parallel_NPU_group:1'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "COLOCATED_0                   model_parallel_NPU_group:1                                                                                                                                      
+"
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 48, in __init__
+    self.comp_time = int(col[1])
+                     ~~~^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'model_parallel_NPU_group:1'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "COLOCATED_0                   model_parallel_NPU_group:1                                                                                                                                      
+"
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 58, in __init__
+    self.output_memory_loc = str(col[6])
+                                 ~~~^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+   [3.5s] [94mAvg prompt throughput: 314.0 tokens/s,[0m [94mAvg generation throughput: 1136.0 tokens/s[0m
+        ├─Running Instance[0]: 37 reqs, Total # 1 NPUs, Each NPU Memory Usage 16224.51 MB (99.027 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[4.0s] [94mAvg prompt throughput: 1098.0 tokens/s,[0m [94mAvg generation throughput: 1118.0 tokens/s[0m
+        ├─Running Instance[0]: 42 reqs, Total # 1 NPUs, Each NPU Memory Usage 16344.51 MB (99.759 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[4.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 706.0 tokens/s[0m
+        ├─Running Instance[0]: 47 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[5.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 332.0 tokens/s[0m
+        ├─Running Instance[0]: 48 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 58, in __init__
+    self.output_memory_loc = str(col[6])
+                                 ~~~^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "attn_90                       41611          LOCAL          2785280        LOCAL          0                                                                                         
+"
+[5.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 104.0 tokens/s[0m
+        ├─Running Instance[0]: 51 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[6.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 116.0 tokens/s[0m
+        ├─Running Instance[0]: 60 reqs, Total # 1 NPUs, Each NPU Memory Usage 16374.51 MB (99.942 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 53, in __init__
+    self.input_memory_size = int(col[3])
+                                 ~~~^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "E_387                         0              NONE                                                                                                                                   
+"
+[6.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1338.0 tokens/s[0m
+        ├─Running Instance[0]: 61 reqs, Total # 1 NPUs, Each NPU Memory Usage 16340.51 MB (99.735 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[7.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1112.0 tokens/s[0m
+        ├─Running Instance[0]: 64 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[7.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 194.0 tokens/s[0m
+        ├─Running Instance[0]: 71 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 4.00 MB, 0.001 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 48, in __init__
+    self.comp_time = int(col[1])
+                     ~~~^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'model_parallel_NPU_group:1'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "COLOCATED_0                   model_parallel_NPU_group:1                                                                                                                                      
+"
+[8.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 76.0 tokens/s[0m
+        ├─Running Instance[0]: 77 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 348, in convert_common
+    if not layers[layer_num].is_expert and not layers[layer_num].is_pim:
+           ~~~~~~^^^^^^^^^^^
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 868, in convert
+    num_layers = int(second_line)
+ValueError: invalid literal for int() with base 10: 'input_layernorm               24593          LOCAL          319488         LOCAL          8192           LOCAL          319488         NONE           0              NONE'
+[8.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 72.0 tokens/s[0m
+        ├─Running Instance[0]: 82 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 67, in __init__
+    self.misc = str(col[10])
+                    ~~~^^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "down_proj_360                 165856         LOCAL          57344          LOCAL          117440512      LOCAL          16384          NONE           0 "
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter[9.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1374.0 tokens/s[0m
+        ├─Running Instance[0]: 85 reqs, Total # 1 NPUs, Each NPU Memory Usage 16362.51 MB (99.869 % Used)
+        └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 64, in __init__
+    self.comm_size = int(col[9])
+                         ~~~^^^
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 250, in convert_common
+    layers: list[Layer] = self.get_layers(f)
+                          ~~~~~~~~~~~~~~~^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 105, in get_layers
+    layers.append(Layer(line))
+                  ~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 69, in __init__
+    raise ValueError(f"Cannot parse the following layer -- \"{line}\"")
+ValueError: Cannot parse the following layer -- "LOCAL_184                     24576          LOCAL          8388608        LOCAL          6144           NONE           0              NONE                                         
+"
+[10.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 984.0 tokens/s[0m
+         ├─Running Instance[0]: 92 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[10.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 572.0 tokens/s[0m
+         ├─Running Instance[0]: 94 reqs, Total # 1 NPUs, Each NPU Memory Usage 16284.51 MB (99.393 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[11.0s] [94mAvg prompt throughput: 2118.0 tokens/s,[0m [94mAvg generation throughput: 636.0 tokens/s[0m
+         ├─Running Instance[0]: 95 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-s[10.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 550.0 tokens/s[0m
+         ├─Running Instance[0]: 105 reqs, Total # 1 NPUs, Each NPU Memory Usage 16346.51 MB (99.771 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[11.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1110.0 tokens/s[0m
+         ├─Running Instance[0]: 102 reqs, Total # 1 NPUs, Each NPU Memory Usage 16364.51 MB (99.881 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[11.5s] [94mAvg prompt throughput: 1656.0 tokens/s,[0m [94mAvg generation throughput: 542.0 tokens/s[0m
+         ├─Running Instance[0]: 105 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 2.00 MB, 0.000 % Used 
+[12.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 111 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[12.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 44.0 tokens/s[0m
+         ├─Running Instance[0]: 118 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[13.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 80.0 tokens/s[0m
+         ├─Running Instance[0]: 123 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[13.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 76.0 tokens/s[0m
+         ├─Running Instance[0]: 126 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[14.0s] [94mAvg prompt throughput: 360.0 tokens/s,[0m [94mAvg generation throughput: 326.0 tokens/s[0m
+         ├─Running Instance[0]: 132 reqs, Total # 1 NPUs, Each NPU Memory Usage 16328.51 MB (99.661 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[14.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1030.0 tokens/s[0m
+         ├─Running Instance[0]: 135 reqs, Total # 1 NPUs, Each NPU Memory Usage 16354.51 MB (99.820 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[15.0s] [94mAvg prompt throughput: 2586.0 tokens/s,[0m [94mAvg generation throughput: 560.0 tokens/s[0m
+         ├─Running Instance[0]: 137 reqs, Total # 1 NPUs, Each NPU Memory Usage 16352.51 MB (99.808 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[15.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 602.0 tokens/s[0m
+         ├─Running Instance[0]: 143 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[16.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 152 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[16.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 632.0 tokens/s[0m
+         ├─Running Instance[0]: 155 reqs, Total # 1 NPUs, Each NPU Memory Usage 16318.51 MB (99.600 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[17.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1038.0 tokens/s[0m
+         ├─Running Instance[0]: 157 reqs, Total # 1 NPUs, Each NPU Memory Usage 16316.51 MB (99.588 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[17.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1042.0 tokens/s[0m
+         ├─Running Instance[0]: 162 reqs, Total # 1 NPUs, Each NPU Memory Usage 16316.51 MB (99.588 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[18.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 972.0 tokens/s[0m
+         ├─Running Instance[0]: 166 reqs, Total # 1 NPUs, Each NPU Memory Usage 16376.51 MB (99.954 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[18.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 334.0 tokens/s[0m
+         ├─Running Instance[0]: 170 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[19.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 218.0 tokens/s[0m
+         ├─Running Instance[0]: 172 reqs, Total # 1 NPUs, Each NPU Memory Usage 16374.51 MB (99.942 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[19.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 888.0 tokens/s[0m
+         ├─Running Instance[0]: 179 reqs, Total # 1 NPUs, Each NPU Memory Usage 16348.51 MB (99.783 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[20.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 790.0 tokens/s[0m
+         ├─Running Instance[0]: 185 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[20.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 196.0 tokens/s[0m
+         ├─Running Instance[0]: 189 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[21.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 352.0 tokens/s[0m
+         ├─Running Instance[0]: 195 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[21.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 92.0 tokens/s[0m
+         ├─Running Instance[0]: 199 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[22.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 658.0 tokens/s[0m
+         ├─Running Instance[0]: 201 reqs, Total # 1 NPUs, Each NPU Memory Usage 16286.51 MB (99.405 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[22.5s] [94mAvg prompt throughput: 2160.0 tokens/s,[0m [94mAvg generation throughput: 436.0 tokens/s[0m
+         ├─Running Instance[0]: 205 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[23.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 502.0 tokens/s[0m
+         ├─Running Instance[0]: 205 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[23.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 166.0 tokens/s[0m
+         ├─Running Instance[0]: 210 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[24.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 80.0 tokens/s[0m
+         ├─Running Instance[0]: 211 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[24.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 76.0 tokens/s[0m
+         ├─Running Instance[0]: 215 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[25.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 464.0 tokens/s[0m
+         ├─Running Instance[0]: 219 reqs, Total # 1 NPUs, Each NPU Memory Usage 16364.51 MB (99.881 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[25.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 416.0 tokens/s[0m
+         ├─Running Instance[0]: 223 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[26.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 48.0 tokens/s[0m
+         ├─Running Instance[0]: 227 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[26.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 232 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[27.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 235 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[27.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 238 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[28.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 372.0 tokens/s[0m
+         ├─Running Instance[0]: 242 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[28.5s] [94mAvg prompt throughput: 2590.0 tokens/s,[0m [94mAvg generation throughput: 118.0 tokens/s[0m
+         ├─Running Instance[0]: 249 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 163, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 156, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/converter.py", line 41, in convert_llm
+    converter.convert()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 875, in convert
+    self.convert_common(f, num_layers, num_npu_group)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/astra-sim/extern/graph_frontend/chakra/src/converter/llm_converter.py", line 348, in convert_common
+    if not layers[layer_num].is_expert and not layers[layer_num].is_pim:
+           ~~~~~~^^^^^^^^^^^
+IndexError: list index out of range
+[29.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 256 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[29.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 264 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[30.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 266 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[30.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 273 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 2.00 MB, 0.000 % Used 
+[31.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 277 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[31.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 44.0 tokens/s[0m
+         ├─Running Instance[0]: 284 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[32.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 80.0 tokens/s[0m
+         ├─Running Instance[0]: 287 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[32.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 478.0 tokens/s[0m
+         ├─Running Instance[0]: 294 reqs, Total # 1 NPUs, Each NPU Memory Usage 16294.51 MB (99.454 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[33.0s] [94mAvg prompt throughput: 2410.0 tokens/s,[0m [94mAvg generation throughput: 328.0 tokens/s[0m
+         ├─Running Instance[0]: 302 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[33.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 78.0 tokens/s[0m
+         ├─Running Instance[0]: 308 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[34.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 315 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[34.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 320 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[35.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 323 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[35.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 330 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[36.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 335 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[36.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 38.0 tokens/s[0m
+         ├─Running Instance[0]: 341 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[37.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 346 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[37.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 347 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[38.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 352 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[38.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 36.0 tokens/s[0m
+         ├─Running Instance[0]: 355 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 4.00 MB, 0.001 % Used 
+       └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[40.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 126.0 tokens/s[0m
+         ├─Running Instance[0]: 305 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[41.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1244.0 tokens/s[0m
+         ├─Running Instance[0]: 310 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[41.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1128.0 tokens/s[0m
+         ├─Running Instance[0]: 317 reqs, Total # 1 NPUs, Each NPU Memory Usage 16360.51 MB (99.857 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[42.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1258.0 tokens/s[0m
+         ├─Running Instance[0]: 320 reqs, Total # 1 NPUs, Each NPU Memory Usage 16332.51 MB (99.686 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[42.5s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 1252.0 tokens/s[0m
+         ├─Running Instance[0]: 328 reqs, Total # 1 NPUs, Each NPU Memory Usage 16382.51 MB (99.991 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 
+[43.0s] [94mAvg prompt throughput: 0.0 tokens/s,[0m [94mAvg generation throughput: 628.0 tokens/s[0m
+         ├─Running Instance[0]: 330 reqs, Total # 1 NPUs, Each NPU Memory Usage 16372.51 MB (99.930 % Used)
+         └─Node[0]: Total CPU Memory Usage 0.00 MB, 0.000 % Used 

@@ -1,0 +1,7 @@
+sim_time_ns,instance_id,policy,event_type,reason,npu_used_bytes,npu_kv_bytes,kv_capacity_bytes,cpu_used_bytes,cxl_used_bytes,reserve_bytes,forecast_bytes,pressure,kv_pressure,trigger,target,active_decode_requests,resident_decode_requests,request_id,request_input_tokens,request_generated_tokens,raw_bytes,stored_bytes,storage_tier,score,utility,selected_requests,deferred_requests,prefix_node_id,prefix_category,prefix_frequency,prefix_depth_tokens,prefix_remaining_tokens
+30000241854,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,3.0,0.0,,,2,medium,3,256,512
+40000487355,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,6.0,0.0,,,3,frequent_dead,3,256,512
+60000745685,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,9.0,0.0,,,4,medium,3,256,512
+90000016844,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,17.0,0.0,,,1,hot,11,256,512
+180000364977,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,20.0,0.0,,,5,frequent_dead,11,256,512
+260000700281,0,gdfs,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,51.0,0.0,,,7,hot,31,256,512

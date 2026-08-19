@@ -1,0 +1,88 @@
+================================================================================
+[1m                                LLMServingSim2.0                                [0m
+[95m  A Unified Simulator for Heterogeneous Hardware and Serving Techniques in LLM  [0m
+================================================================================
+[96m     _    _    __  __ ___              _           ___ _       ___   __  
+    | |  | |  |  \/  / __| ___ _ ___ _(_)_ _  __ _/ __(_)_ __ |_  ) /  \ 
+    | |__| |__| |\/| \__ \/ -_) '_\ V / | ' \/ _` \__ \ | '  \ / / | () |
+    |____|____|_|  |_|___/\___|_|  \_/|_|_||_\__, |___/_|_|_|_/___(_)__/ 
+                                             |___/       [0m
+--------------------------------------------------------------------------------
+[95m                              Input configuration                               [0m
+
+  • [96mCluster config               [0m : output/tiered_kv/model_tier_policy_matrix/_generated_cluster_configs/phi_moe__cpu_dram__A6000.json
+  • [96mDataset                      [0m : dataset/sharegpt_req750_rate10_phi.jsonl
+  • [96mNum requests                 [0m : 750
+  • [96mMax batch                    [0m : inf
+  • [96mMax batched tokens           [0m : 2048
+  • [96mBlock size (tokens)          [0m : 16
+  • [96mFP precision                 [0m : 16-bit
+  • [96mRequest routing              [0m : RR
+  • [96mExpert routing               [0m : FAST
+  • [96mKV eviction policy           [0m : harp
+  • [96mEVICPRESS alpha              [0m : 1.0
+  • [96mEVICPRESS ratios             [0m : 1.0,0.75,0.5,0.25
+  • [96mHARP grace candidates        [0m : 0
+  • [96mHARP ratios                  [0m : 1.0
+  • [96mHARP lambda stall            [0m : 0.0
+  • [96mHARP lambda quality          [0m : 0.0
+  • [96mHARP lambda fairness         [0m : 0.0
+  • [96mHARP fairness epsilon        [0m : 1e-06
+  • [96mHARP compression profile     [0m : none
+  • [96mHARP compression trace       [0m : N/A
+  • [96mPrefix caching               [0m : DISABLED
+  • [96mPrefix caching scheme        [0m : xPU-Only
+  • [96mCentralized prefix caching   [0m : DISABLED
+  • [96mOffload attention to PIM     [0m : DISABLED
+  • [96mSub-batch interleaving       [0m : DISABLED
+  • [96mRealtime attention prediction[0m : DISABLED
+  • [96mPrioritize prefill           [0m : DISABLED
+  • [96mNetwork backend              [0m : analytical
+  • [96mLog interval (s)             [0m : 0.5
+  • [96mLog level                    [0m : WARNING
+--------------------------------------------------------------------------------
+[1m[96m▶ Starting simulation...
+[0m[0m
+Traceback (most recent call last):
+  File "/home/marvell/miniconda3/lib/python3.13/site-packages/pandas/io/json/_json.py", line 948, in _get_data_from_filepath
+    self.handles = get_handle(
+                   ~~~~~~~~~~^
+        filepath_or_buffer,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        errors=self.encoding_errors,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/marvell/miniconda3/lib/python3.13/site-packages/pandas/io/common.py", line 926, in get_handle
+    handle = open(
+        handle,
+    ...<3 lines>...
+        newline="",
+    )
+FileNotFoundError: [Errno 2] No such file or directory: '../dataset/sharegpt_req750_rate10_phi.jsonl'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/marvell/LLMServingSim/main.py", line 765, in <module>
+    main()
+    ~~~~^^
+  File "/home/marvell/LLMServingSim/main.py", line 330, in main
+    router.generate(dataset, enable_prefix_caching=enable_prefix_caching, is_init=is_init)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/marvell/LLMServingSim/inference_serving/router.py", line 56, in generate
+    data = pd.read_json(path, lines=True)
+  File "/home/marvell/miniconda3/lib/python3.13/site-packages/pandas/io/json/_json.py", line 829, in read_json
+    json_reader = JsonReader(
+        path_or_buf,
+    ...<16 lines>...
+        engine=engine,
+    )
+  File "/home/marvell/miniconda3/lib/python3.13/site-packages/pandas/io/json/_json.py", line 931, in __init__
+    data = self._get_data_from_filepath(filepath_or_buffer)
+  File "/home/marvell/miniconda3/lib/python3.13/site-packages/pandas/io/json/_json.py", line 957, in _get_data_from_filepath
+    raise FileNotFoundError(
+        f"File {filepath_or_buffer} does not exist"
+    ) from err
+FileNotFoundError: File ../dataset/sharegpt_req750_rate10_phi.jsonl does not exist

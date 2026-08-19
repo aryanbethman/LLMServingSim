@@ -1,0 +1,10 @@
+sim_time_ns,instance_id,policy,event_type,reason,npu_used_bytes,npu_kv_bytes,kv_capacity_bytes,cpu_used_bytes,cxl_used_bytes,reserve_bytes,forecast_bytes,pressure,kv_pressure,trigger,target,active_decode_requests,resident_decode_requests,request_id,request_input_tokens,request_generated_tokens,raw_bytes,stored_bytes,storage_tier,score,utility,selected_requests,deferred_requests,prefix_node_id,prefix_category,prefix_frequency,prefix_depth_tokens,prefix_remaining_tokens
+30000241854,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,2,frequent_dead,3,256,512
+40000357331,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(2.1130879476635245e-09, -256)",0.0,,,1,hot,7,256,512
+50000472808,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,4,frequent_dead,3,256,512
+60000588285,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(3.140807297707192e-07, -256)",0.0,,,3,medium,3,256,512
+70000703762,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,6,frequent_dead,3,256,512
+80000819239,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(9.864676516584703e-14, -256)",0.0,,,5,hot,3,256,512
+90000934716,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,8,frequent_dead,3,256,512
+180000152825,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,7,medium,3,256,512
+260000358105,0,wa_kv,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,"(0.0, -256)",0.0,,,9,recent_cold,35,256,512
