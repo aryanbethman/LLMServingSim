@@ -44,10 +44,13 @@ class Router:
     def _custom_routing_policy(self, request_ctr, num_instances):
         raise NotImplementedError("Implement custom routing policy.")
 
-    def transfer_prefill_request(self, requests):
+    def transfer_prefill_request(self, requests, current=0, source_scheduler=None):
+        source_tier = getattr(source_scheduler, "kv_tier", None)
         for req in requests:
             instance_id = self.routing_fn(self.decode_rr_counter, self.decode_instances)
-            self.decode_schedulers[instance_id].add_decode(req)
+            self.decode_schedulers[instance_id].add_decode(
+                req, current=current, source_tier=source_tier
+            )
             self.decode_rr_counter += 1
 
     # generate request to each instance with routing policy

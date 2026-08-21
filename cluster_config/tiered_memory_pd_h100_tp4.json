@@ -1,0 +1,56 @@
+{
+  "num_nodes": 1,
+  "link_bw": 900,
+  "link_latency": 0,
+  "pd_transfer": {
+    "chunk_blocks": 4,
+    "prefetch_blocks": 2
+  },
+  "memory_tiers": [
+    {"name": "prefill_hbm", "capacity_gb": 80, "service_bw_gbps": 3350, "access_latency_ns": 0, "endpoint": "prefill-tray"},
+    {"name": "decode_hbm", "capacity_gb": 80, "service_bw_gbps": 3350, "access_latency_ns": 0, "endpoint": "decode-tray"},
+    {"name": "host_dram", "capacity_gb": 1024, "service_bw_gbps": 512, "access_latency_ns": 200, "endpoint": "host"},
+    {"name": "cxl_pool", "capacity_gb": 512, "service_bw_gbps": 128, "access_latency_ns": 250, "endpoint": "cxl-switch"},
+    {"name": "remote_hbm", "capacity_gb": 80, "service_bw_gbps": 3350, "access_latency_ns": 0, "endpoint": "remote-tray"}
+  ],
+  "fabric": {
+    "links": [
+      {"src": "prefill-tray", "dst": "nv-switch", "bandwidth_gbps": 900, "latency_ns": 90, "contention_group": "prefill-uplink"},
+      {"src": "nv-switch", "dst": "decode-tray", "bandwidth_gbps": 900, "latency_ns": 90, "contention_group": "decode-downlink"},
+      {"src": "decode-tray", "dst": "nv-switch", "bandwidth_gbps": 900, "latency_ns": 90, "contention_group": "decode-uplink"},
+      {"src": "nv-switch", "dst": "prefill-tray", "bandwidth_gbps": 900, "latency_ns": 90, "contention_group": "prefill-downlink"},
+      {"src": "decode-tray", "dst": "host", "bandwidth_gbps": 128, "latency_ns": 100, "contention_group": "host-link"},
+      {"src": "host", "dst": "decode-tray", "bandwidth_gbps": 128, "latency_ns": 100, "contention_group": "host-link"},
+      {"src": "decode-tray", "dst": "cxl-switch", "bandwidth_gbps": 128, "latency_ns": 150, "contention_group": "cxl-link"},
+      {"src": "cxl-switch", "dst": "decode-tray", "bandwidth_gbps": 128, "latency_ns": 150, "contention_group": "cxl-link"},
+      {"src": "decode-tray", "dst": "remote-tray", "bandwidth_gbps": 400, "latency_ns": 300, "contention_group": "remote-link"},
+      {"src": "remote-tray", "dst": "decode-tray", "bandwidth_gbps": 400, "latency_ns": 300, "contention_group": "remote-link"}
+    ]
+  },
+  "nodes": [
+    {
+      "num_instances": 2,
+      "cpu_mem": {"mem_size": 1024, "mem_bw": 512, "mem_latency": 0},
+      "instances": [
+        {
+          "model_name": "meta-llama/Llama-3.1-70B",
+          "hardware": "H100",
+          "npu_mem": {"mem_size": 80, "mem_bw": 3350, "mem_latency": 0},
+          "npu_num": 4,
+          "npu_group": 1,
+          "pd_type": "prefill",
+          "kv_tier": "prefill_hbm"
+        },
+        {
+          "model_name": "meta-llama/Llama-3.1-70B",
+          "hardware": "H100",
+          "npu_mem": {"mem_size": 80, "mem_bw": 3350, "mem_latency": 0},
+          "npu_num": 4,
+          "npu_group": 1,
+          "pd_type": "decode",
+          "kv_tier": "decode_hbm"
+        }
+      ]
+    }
+  ]
+}

@@ -16,7 +16,8 @@ class Scheduler:
     def __init__(self, model, node_id, instance_id, max_batch, max_num_batched_tokens, 
                  npu_num, npu_group, npu_mem, cpu_mem, 
                  start_npu, pd_type, fp, block_size, req_num, 
-                 prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0):
+                 prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0,
+                 tiered_memory=None, kv_tier=None, pd_transfer=None):
         # all time realated variables are in using tick (system tick)
         # LLMServingSim uses Orca, vLLM technique at deafult
         self.model = model
@@ -34,6 +35,11 @@ class Scheduler:
         self.enable_prefix_sharing = enable_prefix_sharing
         self.prefix_storage = prefix_storage
         self.prioritize_prefill = prioritize_prefill
+        # Optional generic tier model. Leaving it unset preserves legacy scheduling.
+        self.tiered_memory = tiered_memory
+        self.kv_tier = kv_tier
+        self.pd_transfer = pd_transfer or {}
+        self._completed_batch_id = None
         # lists are sorted in arrival time manner
         self.request = [] # list of requests
         self.inflight = [] # list of batches
@@ -60,7 +66,10 @@ class Scheduler:
         # first NPU to process new batch
         if sys == self.start_npu:
             # nothing to batch return None
-            if len(self.request) != 0 and self.request[0].arrival > current:
+            if len(self.request) != 0 and not any(
+                req.arrival <= current and getattr(req, "pd_ready_at", 0) <= current
+                for req in self.request
+            ):
                 return None
             # constraint of inflight batches considering parallelism
             if len(self.inflight) >= self.npu_group:
@@ -68,7 +77,10 @@ class Scheduler:
                 return None
 
             # scheduling start
-            batch_req = [req for req in self.request if req.arrival <= current]
+            batch_req = [
+                req for req in self.request
+                if req.arrival <= current and getattr(req, "pd_ready_at", 0) <= current
+            ]
             batch_len = len(batch_req) if len(batch_req) <= self.max_batch else self.max_batch
 
             # nothing to batch
@@ -100,6 +112,9 @@ class Scheduler:
             
             # no memory to batch
             while temp_len == 0:
+                # Tiered P/D experiments intentionally disable eviction and host spill.
+                if self.tiered_memory is not None:
+                    return None
                 # preempt request one by one untill there is enough space
                 if len(gen_req) == 0:
                     return None
@@ -165,8 +180,32 @@ class Scheduler:
                     req.evict = False
                     self.logger.info("Loading the request #%d", req.id)
 
+            # Reserve generic tier capacity when a prompt is admitted. The legacy
+            # MemoryModel still accounts for local compute-side allocation.
+            newly_reserved = []
+            if self.tiered_memory is not None and self.kv_tier is not None:
+                try:
+                    for req in batch_req:
+                        if req.is_init and req.kv_reserved_bytes == 0:
+                            # Match the block-rounded KV actually allocated for prefill.
+                            reserved = self.memory.get_block_kv([req], 1)
+                            self.tiered_memory.reserve(self.kv_tier, reserved)
+                            req.kv_tier = self.kv_tier
+                            req.kv_reserved_bytes = reserved
+                            newly_reserved.append(req)
+                except RuntimeError:
+                    for req in newly_reserved:
+                        self.tiered_memory.release(self.kv_tier, req.kv_reserved_bytes)
+                        req.kv_reserved_bytes = 0
+                        req.kv_tier = None
+                    return None
+
             # Allocate Needed KV caches for current batch
             if kv_size > 0:
+                if self.tiered_memory is not None:
+                    for req in batch_req:
+                        if not req.is_init and req.kv_reserved_bytes > 0:
+                            req.kv_local_growth_bytes += self.memory.get_block_kv([req], 1)
                 self.memory.allocate(kv_size, Device.NPU)
             
             # load memory from cpu (host)
@@ -534,7 +573,8 @@ class Scheduler:
                     self.logger.info("Request #%d is sent to decode instance", req.id)
                     req.input += 1
                     
-                    # remove kv cache here
+                    # The legacy model releases compute-side prefill KV here.
+                    # Generic source-tier ownership moves only after Router plans handoff.
                     if self.enable_prefix_caching:
                         self.memory.unlock_prefix(req, Device.NPU)
                     else:
@@ -558,8 +598,15 @@ class Scheduler:
                     if self.prefix_storage is not None:
                         self.memory.cache_finished_req(req, Device.CPU)
                 else:
-                    kv_size = self.memory.get_evict_kv(req)
-                    self.memory.free(kv_size, Device.NPU)
+                    if self.tiered_memory is not None and req.kv_reserved_bytes > 0:
+                        self.tiered_memory.release(req.kv_tier, req.kv_reserved_bytes)
+                        if req.kv_local_growth_bytes > 0:
+                            self.memory.free(req.kv_local_growth_bytes, Device.NPU)
+                        req.kv_reserved_bytes = 0
+                        req.kv_local_growth_bytes = 0
+                    else:
+                        kv_size = self.memory.get_evict_kv(req)
+                        self.memory.free(kv_size, Device.NPU)
                 req.add_latency(finish)
                 self.done.append(req)
                 end_reqs.append(req)
@@ -573,6 +620,7 @@ class Scheduler:
         else:
             self.request = pool + self.request
 
+        self._completed_batch_id = batch.batch_id
         del self.inflight[idx]
         del batch
         return prompt_t, gen_t, end_reqs
@@ -584,17 +632,42 @@ class Scheduler:
         self.batch_ids += 1
         return self.batch_ids
 
+    def take_completed_batch_id(self):
+        batch_id = self._completed_batch_id
+        self._completed_batch_id = None
+        return batch_id
+
     # add a request
     def add_request(self, req, is_init=True):
         new_req = Request(*(req), is_init=is_init)
         self.request.append(new_req)
         return
     
-    # add decode request to decode instance from prefill instnace
-    def add_decode(self, req):
+    # Add a P/D handoff request. Generic mode reserves its destination tier
+    # and delays decode admission until enough chunks have arrived.
+    def add_decode(self, req, current=0, source_tier=None):
+        if self.tiered_memory is None or self.kv_tier is None:
+            self.request.append(req)
+            kv_size = self.memory.get_total_kv(req)
+            self.memory.allocate(kv_size, Device.NPU)
+            return
+
+        if source_tier is None:
+            raise RuntimeError("Tiered P/D handoff requires a source KV tier")
+        block_bytes = self.memory.get_kv(self.memory.block_size)
+        plan = self.tiered_memory.plan_kv_handoff(
+            source_tier, self.kv_tier, self.memory.get_total_kv(req), block_bytes,
+            int(self.pd_transfer.get("chunk_blocks", 1)),
+            int(self.pd_transfer.get("prefetch_blocks", 1)),
+            int(current),
+            precision_bytes=self.memory.fp,
+        )
+        self.tiered_memory.release(source_tier, req.kv_reserved_bytes)
+        req.kv_tier = self.kv_tier
+        req.kv_reserved_bytes = plan.reservation_bytes
+        req.pd_ready_at = plan.ready_at_ns
+        req.kv_transfer_plan = plan
         self.request.append(req)
-        kv_size = self.memory.get_total_kv(req)
-        self.memory.allocate(kv_size, Device.NPU)
     
     # get first request's arrival time
     def get_first_arrival_time(self):

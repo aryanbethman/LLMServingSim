@@ -17,6 +17,7 @@ from inference_serving.config_builder import *
 from inference_serving.router import *
 from inference_serving.power_model import *
 from inference_serving.logger import *
+from inference_serving.tiered_memory import TopologyAwareMemory
 import sys as flush
 
 from pyinstrument import Profiler
@@ -56,6 +57,8 @@ def main():
     parser.add_argument('--log-interval', type=float, help='interval to log throughput (sec)', default=0.5)
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
+    parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
+    parser.add_argument('--retain-traces', action='store_true', help='retain generated trace/workload files after they are consumed', default=False)
 
     args = parser.parse_args()
 
@@ -112,6 +115,20 @@ def main():
     power_modeling = cluster["power_modeling"]
     power_configs = cluster["power_configs"]
     pim_models = cluster["pim_models"]
+    tiered_memory = TopologyAwareMemory.from_config(cluster["tiered_memory_config"])
+    if tiered_memory is not None:
+        if enable_prefix_caching:
+            raise RuntimeError("Generic tiered-memory P/D modeling cannot be combined with prefix caching yet.")
+        for instance in instances:
+            kv_tier = instance.get("kv_tier")
+            if kv_tier is not None and kv_tier not in tiered_memory.tiers:
+                raise RuntimeError(
+                    f"Instance KV tier '{kv_tier}' is not declared in memory_tiers."
+                )
+            if instance["pd_type"] in ("prefill", "decode") and kv_tier is None:
+                raise RuntimeError(
+                    "Every prefill/decode instance needs a kv_tier when memory_tiers are configured."
+                )
     # ----------------------------------------- Set config -----------------------------------------
     # Automatic network, memory configuration
     # If you want to set more specific information such as latency, look at config.py and each json file
@@ -200,7 +217,9 @@ def main():
             instance["model_name"], instance["node_id"], instance_id, max_batch, max_num_batched_tokens,
             instance["npu_num"], instance["npu_group"], instance["npu_mem"]["mem_size"], cpu_mem_size[instance["node_id"]],
             inst2npu_mapping[instance_id], instance["pd_type"], fp, block_size, num_req, 
-            prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, pool_device, cxl_mem
+            prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, pool_device, cxl_mem,
+            tiered_memory=tiered_memory, kv_tier=instance.get("kv_tier"),
+            pd_transfer=cluster["tiered_memory_config"]["pd_transfer"],
         ))
 
     # Controller for astra-sim process communication
@@ -295,6 +314,12 @@ def main():
 
         # check request is done
         prompt_t, gen_t, reqs = schedulers[instance_id].add_done(id, sys, current)
+        completed_batch_id = schedulers[instance_id].take_completed_batch_id()
+        if completed_batch_id is not None and not args.retain_traces:
+            cleanup_batch_artifacts(
+                instances[instance_id]["hardware"], schedulers[instance_id].model,
+                instance_id, completed_batch_id,
+            )
         # add tokens in throughput
         prompt_th += prompt_t
         total_prompt += prompt_t
@@ -305,7 +330,9 @@ def main():
 
         # Add prefill ended requests to decode instance
         if instances[instance_id]["pd_type"] == "prefill" and len(reqs) > 0:
-            router.transfer_prefill_request(reqs)
+            router.transfer_prefill_request(
+                reqs, current=current, source_scheduler=schedulers[instance_id]
+            )
 
         # schedule requests
         new_req = schedulers[instance_id].schedule(current, sys, id)
@@ -535,6 +562,17 @@ def main():
         print(f"Saving each request's information to output file: {output_file}")
         for i in range(num_instances):
             schedulers[i].save_output(output_file, is_append=False if i == 0 else True)
+
+    if args.tier_stats_output is not None and tiered_memory is not None:
+        tier_stats_path = args.tier_stats_output
+        if not os.path.isabs(tier_stats_path):
+            tier_stats_path = os.path.join("..", tier_stats_path)
+        os.makedirs(os.path.dirname(tier_stats_path) or ".", exist_ok=True)
+        tier_summary = tiered_memory.summary(simulation_end_ns=current)
+        tier_summary["trace_artifacts"] = get_graph_artifact_stats()
+        with open(tier_stats_path, "w", encoding="utf-8") as tier_stats_file:
+            json.dump(tier_summary, tier_stats_file, indent=2)
+        print(f"Saved generic tier/fabric metrics to: {tier_stats_path}")
     
 
 if __name__ == "__main__":

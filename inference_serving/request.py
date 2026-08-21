@@ -18,6 +18,13 @@ class Request:
         self.itl = []
         self.recent_end = 0
 
+        # Topology-aware P/D KV handoff state. It is unused by legacy runs.
+        self.kv_tier = None
+        self.kv_reserved_bytes = 0
+        self.kv_local_growth_bytes = 0
+        self.pd_ready_at = 0
+        self.kv_transfer_plan = None
+
         # For prefix caching modeling
         self.input_hash_ids = input_hash_ids
         self.output_hash_ids = output_hash_ids

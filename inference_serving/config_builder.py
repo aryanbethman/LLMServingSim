@@ -380,6 +380,12 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
 
         node_id += 1
 
+    tiered_memory_config = {
+        "memory_tiers": cluster_config.get("memory_tiers", []),
+        "fabric": cluster_config.get("fabric", {}),
+        "pd_transfer": cluster_config.get("pd_transfer", {}),
+    }
+
     cluster = {
         "num_nodes": num_nodes,
         "num_instances": total_num_instances,
@@ -398,7 +404,9 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
         "cxl_mem_size": cxl_mem_size,
         "power_modeling": power_modeling,
         "power_configs": power_configs,
-        "pim_models": pim_models
+        "pim_models": pim_models,
+        # Optional generic model. Empty by default, preserving legacy behaviour.
+        "tiered_memory_config": tiered_memory_config,
     }
                 
     return cluster
