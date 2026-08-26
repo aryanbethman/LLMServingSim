@@ -18,8 +18,8 @@ outputs, or results into this branch. Eviction is disabled for this project.
 - Off-campus access uses:
   `ssh -J dashlab@campnet.dashlab.in,dashlab@lab.dashlab.in marvell@anjuna3.dashlab.in`.
   Key-based access is configured; do not record credentials in this file.
-- The ASTRA-Sim submodule must remain untouched except for disposable-worktree
-  generated input files.
+- ASTRA-Sim remains unchanged except for the scoped nested Chakra converter
+  update described below; do not alter unrelated ASTRA code or generated inputs.
 
 ## Implemented prototype
 
@@ -58,6 +58,19 @@ provides.
 A run-start bug caused by reusing `args` for the ASTRA subprocess command was fixed
 in `main.py`: trace-policy and tier-stat arguments are captured before that reuse
 (commit `67fbfe5`).
+
+## In-memory converter API
+
+The first shared-template prerequisite is implemented in the nested Chakra
+submodule (commit `52f8155`, pinned through ASTRA commit `9c87b60`).
+`LLMConverter.convert_to_payloads()` returns rank-indexed ET byte payloads
+without creating rank files. Its legacy `convert()` file-writing interface
+remains the default and uses the same internal conversion/encoding path.
+
+Automated byte-exact equivalence tests cover COLOCATED, DECODE, PREFILL, and
+EVENT inputs; a real Llama 3.1 70B batch also matched for four ranks (893,042
+bytes). This is only the producer-side API: no ASTRA ETFeeder or simulator
+execution path consumes in-memory templates yet.
 
 ## Workloads
 

@@ -51,8 +51,11 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         GB across 15,933 batches. Corrected profiling confirms 3,672 structural
         templates (94.2% upper-bound reuse), versus only 10.3% for exact payload
         hashes; no ET parse failures.
-  - [ ] Refactor Chakra conversion into a callable API that returns ET payloads;
-        keep its current file-writing CLI as the legacy fallback.
+  - [x] Refactor Chakra conversion into a callable API that returns ET payloads;
+        keep its current file-writing CLI as the legacy fallback. The new
+        `convert_to_payloads()` reuses the legacy conversion/encoding path with
+        `BytesIO` sinks. Byte-exact tests cover COLOCATED, DECODE, PREFILL, and
+        EVENT; a real 70B batch also matched (four ranks, 893,042 bytes).
   - [ ] Add a content-addressed template store and reference-counted lifetime:
         deduplicate identical rank payloads and retain only active templates.
   - [ ] Extend ASTRA's ETFeeder/workload protocol to accept in-memory template
