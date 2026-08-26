@@ -42,13 +42,14 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 
 ## Scalability engineering
 
+- [ ] **Primary scalability contribution:** replace ASTRA's rank-specific ET
+      files with shared/content-addressed execution templates and streamed
+      aggregate metrics. Cleanup only bounds peak retained storage; this work
+      makes the 72/96/1,096 logical-NPU experiments credible.
 - [ ] Profile trace generation, Chakra conversion, ASTRA startup, filesystem
       operations, and Python memory on the validated 16-NPU workload.
-- [ ] Replace rank-specific ET-file materialization with shared,
-      content-addressed execution templates and in-memory rank instantiation.
-      Cleanup bounds retained storage, but it does not remove this creation cost.
-- [ ] Replace per-rank metric/output files with streamed aggregate metrics and
-      optional sampled per-request output.
+- [ ] Implement in-memory rank instantiation from shared templates.
+- [ ] Preserve optional sampled per-request output without per-rank metrics files.
 - [ ] Demonstrate bounded file count/storage and practical runtime at 72, 96,
       and 1,096 logical NPUs before presenting those scale results.
 - [ ] Re-run the 16-NPU test after each scalability change; only then evaluate
