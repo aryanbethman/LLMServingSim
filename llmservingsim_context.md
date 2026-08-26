@@ -12,7 +12,7 @@ outputs, or results into this branch. Eviction is disabled for this project.
 
 - Remote repository: `/home/marvell/LLMServingSim` on `marvell@anjuna3.dashlab.in`.
 - Branch: `feature/tiered-memory-topology`.
-- Current branch head: pending root protocol commit; the generic tier/fabric prototype entered at `c242cc5`.
+- Current branch head: `0dad641` (in-memory protocol plus 16-NPU config); the generic tier/fabric prototype entered at `c242cc5`.
 - The local project runtime is:
   `/home/marvell/LLMServingSim/env/bin/python3`.
 - Off-campus access uses:
@@ -98,6 +98,13 @@ The controller framing test, C++ parser harness, feeder equivalence harness,
 tiered-memory unit suite, and analytical rebuild pass. This is not yet an
 end-to-end simulation validation and it intentionally transports raw payloads.
 The next protocol revision will transmit structural templates plus rank overlays.
+
+The 16-NPU ShareGPT-750 end-to-end run is active at
+`/tmp/llmservingsim-tiered-results/npu16-inmemory-attempt2`. Its first
+scheduling interval completed with all four TP=4 replicas running, which proves
+the live controller-to-memory-feeder handoff has started correctly. Do not
+treat it as validated until it exits and is exactly compared with the retained
+file-mode control.
 
 ## Workloads
 
