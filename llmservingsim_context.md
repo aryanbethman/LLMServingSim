@@ -12,7 +12,7 @@ outputs, or results into this branch. Eviction is disabled for this project.
 
 - Remote repository: `/home/marvell/LLMServingSim` on `marvell@anjuna3.dashlab.in`.
 - Branch: `feature/tiered-memory-topology`.
-- Current branch head: `0dad641` (in-memory protocol plus 16-NPU config); the generic tier/fabric prototype entered at `c242cc5`.
+- Current branch: feature/tiered-memory-topology; consult git log for the moving implementation head. The generic tier/fabric prototype entered at c242cc5.
 - The local project runtime is:
   `/home/marvell/LLMServingSim/env/bin/python3`.
 - Off-campus access uses:

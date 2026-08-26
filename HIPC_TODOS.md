@@ -65,8 +65,7 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         graph; it matched all 1,125 nodes of a real 70B ET. The experimental
         raw-payload controller/Workload path is implemented and unit/build-tested;
         an earlier shared-root run was stopped to protect the generated ASTRA input tree. The isolated 16-NPU ShareGPT-750 validation completed with exit 0, zero dynamic rank-ET workload files, and an exact match to the retained file-mode control (750 requests; 89,673,372,165 ns total clocks). The structural-template successor now sends each SHA-256-addressed template once and sparse per-rank overlays thereafter; ASTRA caches the immutable template and reconstructs the legacy ET for its existing mutable feeder. Python tests and an analytical rebuild pass; the isolated 16-NPU validation is active. Remaining: retain only active cached templates and instantiate feeder state directly from structure rather than reconstructed ET bytes.
-  - [~] Add a legacy|shared-template mode; retain legacy as the default until
-        exact TP=1/TP=4 output and timing equivalence tests pass.
+  - [~] Shared-template mode is implemented; legacy remains the default while the 16-NPU exact-output and timing validation runs.
   - [~] Replace per-rank metric writes with a process-wide streaming aggregator
         and optional sampled per-request output.
   - [ ] Prove bounded file count/storage, template reuse, runtime, and peak RAM
