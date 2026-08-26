@@ -1,2 +1,0 @@
-instance id,request id,model,input,output,arrival,end_time,latency,queuing_delay,TTFT,TPOT,ITL,npu_cache_hit,storage_cache_hit,prefix_cache_hit,tier_reload_source,evict_npu_to_cpu_bytes,evict_npu_to_cxl_bytes,load_cpu_to_npu_bytes,load_cxl_to_npu_bytes,evict_raw_bytes,evict_stored_bytes,evict_compression_ratio,harp_state_final,harp_stall_time_ns,harp_stall_events,harp_shadow_hit_tokens,harp_decode_tokens,harp_shadow_ratio,tier_transition_bytes_total
-0,0,meta-llama/Llama-3.1-8B,256,257,0,53114513,53114513,1,53114513,0,[],0,0,0,NPU,0,0,0,0,0,0,1.0,hot,0,0,0,0,1.0,0

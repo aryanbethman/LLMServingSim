@@ -1,4 +1,0 @@
-sim_time_ns,instance_id,policy,event_type,reason,npu_used_bytes,npu_kv_bytes,kv_capacity_bytes,cpu_used_bytes,cxl_used_bytes,reserve_bytes,forecast_bytes,pressure,kv_pressure,trigger,target,active_decode_requests,resident_decode_requests,request_id,request_input_tokens,request_generated_tokens,raw_bytes,stored_bytes,storage_tier,score,utility,selected_requests,deferred_requests,prefix_node_id,prefix_category,prefix_frequency,prefix_depth_tokens,prefix_remaining_tokens
-90000420511,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,50025382024.0,0.0,,,1,hot,11,256,768
-180000765498,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,70025407682.0,0.0,,,3,medium,7,256,768
-260000097656,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,80025420511.0,0.0,,,2,frequent_dead,15,256,768

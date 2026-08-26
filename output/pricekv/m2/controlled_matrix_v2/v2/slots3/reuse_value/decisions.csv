@@ -1,7 +1,0 @@
-sim_time_ns,instance_id,policy,event_type,reason,npu_used_bytes,npu_kv_bytes,kv_capacity_bytes,cpu_used_bytes,cxl_used_bytes,reserve_bytes,forecast_bytes,pressure,kv_pressure,trigger,target,active_decode_requests,resident_decode_requests,request_id,request_input_tokens,request_generated_tokens,raw_bytes,stored_bytes,storage_tier,score,utility,selected_requests,deferred_requests,prefix_node_id,prefix_category,prefix_frequency,prefix_depth_tokens,prefix_remaining_tokens
-20000229025,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.0,0.0,,,2,frequent_dead,3,256,512
-40000357331,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.011916604020793009,0.0,,,1,hot,7,256,512
-60000485637,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.0,0.0,,,4,frequent_dead,3,256,512
-70000601114,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.01176789050821534,0.0,,,3,medium,7,256,512
-90000729420,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.0,0.0,,,6,frequent_dead,7,256,512
-260000050161,0,reuse_value,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,0.0,0.0,,,7,recent_cold,35,256,512

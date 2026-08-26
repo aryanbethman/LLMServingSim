@@ -5,7 +5,7 @@ _Last updated: 2026-08-26_
 ## Project boundary
 
 This is the Marvell/HiPC topology-aware tiered-memory project. It is separate from
-PriceKV/KV-eviction work. Do not merge or cherry-pick eviction code, configurations,
+unrelated prior work. This branch is reserved for topology-aware tiered-memory simulator development.
 outputs, or results into this branch. Eviction is disabled for this project.
 
 ## Repository and access
@@ -99,7 +99,7 @@ tiered-memory unit suite, and analytical rebuild pass. This is not yet an
 end-to-end simulation validation and it intentionally transports raw payloads.
 The shared-template protocol is now implemented: controller sends SHA-256-addressed structural templates once and sparse rank overlays thereafter; ASTRA caches templates and reconstructs rank ET streams for the existing feeder. Aggregate transport metrics can be emitted as one JSON summary. An isolated 16-NPU validation is active.
 
-An earlier shared-root 16-NPU run was stopped before it could interfere with the active PriceKV job, which uses the same generated ASTRA input tree. The isolated ShareGPT-750 validation then completed with exit 0, zero dynamic rank-ET workload files, and an exact match to the retained file-mode control: 750 requests and 89,673,372,165 total clocks. The live controller-to-memory-feeder handoff and raw in-memory ET transport are therefore behaviorally equivalent to the legacy file mode at this workload/scale. This does not validate the remaining structural-template or streamed-metrics work.
+The first shared-root 16-NPU run was stopped to prevent interference through the generated ASTRA input tree. The isolated ShareGPT-750 validation then completed with exit 0, zero dynamic rank-ET workload files, and an exact match to the retained file-mode control: 750 requests and 89,673,372,165 total clocks. The live controller-to-memory-feeder handoff and raw in-memory ET transport are therefore behaviorally equivalent to the legacy file mode at this workload/scale. This does not validate the remaining structural-template or streamed-metrics work.
 
 ## Workloads
 

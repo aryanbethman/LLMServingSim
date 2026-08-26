@@ -1,9 +1,0 @@
-sim_time_ns,instance_id,policy,event_type,reason,npu_used_bytes,npu_kv_bytes,kv_capacity_bytes,cpu_used_bytes,cxl_used_bytes,reserve_bytes,forecast_bytes,pressure,kv_pressure,trigger,target,active_decode_requests,resident_decode_requests,request_id,request_input_tokens,request_generated_tokens,raw_bytes,stored_bytes,storage_tier,score,utility,selected_requests,deferred_requests,prefix_node_id,prefix_category,prefix_frequency,prefix_depth_tokens,prefix_remaining_tokens
-120000308772,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,50024201654.0,0.0,,,1,hot,11,256,1536
-130000326625,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,70024237360.0,0.0,,,3,medium,7,256,1536
-140000999877,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,80024255213.0,0.0,,,2,frequent_dead,15,256,1536
-150000017730,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,90024273066.0,0.0,,,4,recent_cold,3,256,1536
-160000498519,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,100024290919.0,0.0,,,5,recent_cold,3,256,1536
-170000979308,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,110024308772.0,0.0,,,6,recent_cold,3,256,1536
-180000460097,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,120024326625.0,0.0,,,7,recent_cold,3,256,1536
-260000152863,0,lru,prefix_evict,prefix_capacity,,,,,,,,,,,,,,-1,,,33554432,0,,130025999877.0,0.0,,,8,recent_cold,3,256,1536
