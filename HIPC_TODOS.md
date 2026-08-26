@@ -46,11 +46,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       files with shared/content-addressed execution templates and streamed
       aggregate metrics. Cleanup only bounds peak retained storage; this work
       makes the 72/96/1,096 logical-NPU experiments credible.
-  - [x] Measure rank-ET structural identity and converter/parse/filesystem cost
-        on the validated 16-NPU ShareGPT-750 workload: 63,732 rank ETs / 14.23
-        GB across 15,933 batches. Exact content-addressing saves only 10.3%, but
-        structural normalization yields 3,672 templates (94.2% upper-bound reuse);
-        template plus rank-overlay representation is therefore required.
+  - [~] Measure rank-ET structural identity and converter/parse/filesystem cost
+        on the validated 16-NPU ShareGPT-750 workload. The first full profile
+        measured 63,732 rank ETs / 14.23 GB, but its rank-name normalization was
+        over-escaped; rerun before using structural-reuse results.
   - [ ] Refactor Chakra conversion into a callable API that returns ET payloads;
         keep its current file-writing CLI as the legacy fallback.
   - [ ] Add a content-addressed template store and reference-counted lifetime:

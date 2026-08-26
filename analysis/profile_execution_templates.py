@@ -13,7 +13,7 @@ from time import perf_counter
 
 
 RANK_ATTRIBUTES = {"comm_src", "comm_dst", "comm_tag"}
-RANK_NAME = re.compile(r"^(COMM_(?:SEND|RECV)_NODE_.*)_\\d+_\\d+$")
+RANK_NAME = re.compile(r"^(COMM_(?:SEND|RECV)_NODE_.*)_\d+_\d+$")
 
 
 def sha256_file(path, chunk_size=1024 * 1024):
