@@ -75,3 +75,13 @@ Use only the raw ShareGPT-750, -1000, and -1500 datasets in
 
 The already-completed pre-change 16-NPU ShareGPT-750 baseline is the only
 baseline retained. Do not launch 96- or 1,096-NPU baseline runs unless directed.
+
+## Validation status
+
+The cleanup path reduces retained trace/workload artifacts by deleting them after
+the scheduler reports a batch complete. It must not yet be treated as correctness
+validated: the current scheduler acknowledgement observes the first and last NPU,
+not an explicit all-rank ET-file lifetime acknowledgement. A retained-artifact
+control run and exact request/metric comparison are required before using
+cleanup-enabled measurements in the paper. See `llmservingsim_context.md` for the
+current run state and hand-off details.
