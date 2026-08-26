@@ -64,8 +64,8 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         immutable shared byte payload and builds its own mutable dependency
         graph; it matched all 1,125 nodes of a real 70B ET. The experimental
         raw-payload controller/Workload path is implemented and unit/build-tested;
-        the 16-NPU ShareGPT-750 end-to-end validation is running at
-        /tmp/llmservingsim-tiered-results/npu16-inmemory-attempt2. Remaining:
+        an initial shared-root run was stopped before it could interfere with the active PriceKV job; the isolated 16-NPU ShareGPT-750 validation is running at
+        /tmp/llmservingsim-tiered-results/npu16-inmemory-isolated and has created zero dynamic rank-ET workload files. Remaining:
         transmit a structural-template bundle over the controller pipe.
   - [ ] Add a legacy|shared-template mode; retain legacy as the default until
         exact TP=1/TP=4 output and timing equivalence tests pass.
