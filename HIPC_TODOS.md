@@ -18,10 +18,9 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       20 peak artifacts / 4,299,676 bytes; retained exit 0, 750 requests,
       23m 30.84s, 79,665 artifacts / 17,081,453,333 bytes.
 - [x] Run commit 67fbfe5 with --retain-traces (completed; see validation log).
-- [ ] Repeat the retained-trace run with interval artifact monitoring, so cleanup
+- [~] Repeat the retained-trace run with interval artifact monitoring, so cleanup
       and retained storage growth can be plotted on the same time axis.
-      Blocked: a fresh ASTRA checkout has no analytical binary, and the host lacks
-      recursive build dependencies plus the Protobuf development library.
+      Running in an isolated worktree with the validated ASTRA analytical build.
 - [x] Add analysis/compare_simulation_runs.py for exact CSV and metric comparison.
 - [x] Run the exact comparator after the retained control completes.
 - [ ] Establish ASTRA ET-file lifecycle or add explicit all-rank acknowledgement
