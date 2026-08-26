@@ -46,8 +46,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       files with shared/content-addressed execution templates and streamed
       aggregate metrics. Cleanup only bounds peak retained storage; this work
       makes the 72/96/1,096 logical-NPU experiments credible.
-  - [ ] Measure rank-ET structural identity and converter/parse/filesystem cost
-        on the validated 16-NPU ShareGPT-750 workload.
+  - [~] Measure rank-ET structural identity and converter/parse/filesystem cost
+        on the validated 16-NPU ShareGPT-750 workload. The reusable profiler is
+        working; an 8-batch sample found 32/32 distinct ETs even after basic
+        rank-field normalization, so structural parameterization is required.
   - [ ] Refactor Chakra conversion into a callable API that returns ET payloads;
         keep its current file-writing CLI as the legacy fallback.
   - [ ] Add a content-addressed template store and reference-counted lifetime:
