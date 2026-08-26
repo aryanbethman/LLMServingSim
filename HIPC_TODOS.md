@@ -58,9 +58,13 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         EVENT; a real 70B batch also matched (four ranks, 893,042 bytes).
   - [ ] Add a content-addressed template store and reference-counted lifetime:
         deduplicate identical rank payloads and retain only active templates.
-  - [ ] Extend ASTRA's ETFeeder/workload protocol to accept in-memory template
+  - [~] Extend ASTRA's ETFeeder/workload protocol to accept in-memory template
         payloads and instantiate small mutable per-rank execution state, rather
-        than opening llm.<rank>.et files.
+        than opening llm.<rank>.et files. The C++ ETFeeder now accepts an
+        immutable shared byte payload and builds its own mutable dependency
+        graph; it matched all 1,125 nodes of a real 70B ET. Remaining: transmit
+        a template bundle over the controller pipe and select this path from
+        Workload.
   - [ ] Add a legacy|shared-template mode; retain legacy as the default until
         exact TP=1/TP=4 output and timing equivalence tests pass.
   - [ ] Replace per-rank metric writes with a process-wide streaming aggregator

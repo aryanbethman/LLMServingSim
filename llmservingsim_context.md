@@ -12,7 +12,7 @@ outputs, or results into this branch. Eviction is disabled for this project.
 
 - Remote repository: `/home/marvell/LLMServingSim` on `marvell@anjuna3.dashlab.in`.
 - Branch: `feature/tiered-memory-topology`.
-- Current branch head: `b8ca4f6` (in-memory ET converter); the generic tier/fabric prototype entered at `c242cc5`.
+- Current branch head: `ecb91f6` (in-memory ET feeder); the generic tier/fabric prototype entered at `c242cc5`.
 - The local project runtime is:
   `/home/marvell/LLMServingSim/env/bin/python3`.
 - Off-campus access uses:
@@ -71,6 +71,19 @@ Automated byte-exact equivalence tests cover COLOCATED, DECODE, PREFILL, and
 EVENT inputs; a real Llama 3.1 70B batch also matched for four ranks (893,042
 bytes). This is only the producer-side API: no ASTRA ETFeeder or simulator
 execution path consumes in-memory templates yet.
+
+## In-memory feeder API
+
+The nested Chakra feeder now accepts an immutable shared ET byte payload
+(commit `74b3ce3`, pinned through ASTRA commit `dfd1d38`). Each ETFeeder creates
+an independent mutable dependency graph, so ranks do not share node state.
+An analytical rebuild succeeded, and a standalone comparison against a real
+Llama 3.1 70B ET matched all 1,125 issued nodes.
+
+This is a consumer-side prerequisite only. The controller still passes
+rank-file paths across stdin and Workload still selects the file constructor.
+The next integration slice is a framed template-bundle protocol over the
+existing controller pipe, followed by legacy/shared-mode equivalence tests.
 
 ## Workloads
 
