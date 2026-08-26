@@ -153,7 +153,15 @@ def main():
     # If you want to set more specific information such as latency, look at config.py and each json file
     if network_backend == 'analytical':
         network=os.path.join(astra_sim, "inputs/network/network.yml")
-        binary=os.path.join(astra_sim, "build/astra_analytical/build/AnalyticalAstra/bin/AnalyticalAstra")
+        legacy_binary = os.path.join(
+            astra_sim, "build/astra_analytical/build/AnalyticalAstra/bin/AnalyticalAstra"
+        )
+        memory_binary = os.path.join(
+            astra_sim, "build/astra_analytical/build/bin/AstraSim_Analytical_Congestion_Unaware"
+        )
+        binary = memory_binary if execution_template_mode == 'in-memory' else legacy_binary
+        if not os.path.isfile(binary):
+            raise RuntimeError(f'Analytical ASTRA binary is unavailable: {binary}')
     elif network_backend == 'ns3':
         network=os.path.join(astra_sim, "extern/network_backend/ns-3/scratch/config/config.txt")
         binary=os.path.join(astra_sim, "extern/network_backend/ns-3/build/scratch/ns3.42-AstraSimNetwork-default")
