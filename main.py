@@ -60,9 +60,9 @@ def main():
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
     parser.add_argument(
         '--execution-template-mode',
-        choices=['legacy', 'in-memory'],
+        choices=['legacy', 'in-memory', 'shared-template'],
         default='legacy',
-        help='legacy ET files (default) or experimental in-memory ET payloads',
+        help='legacy ET files (default), raw in-memory ET payloads, or shared structural templates',
     )
     trace_policy = parser.add_mutually_exclusive_group()
     trace_policy.add_argument(
@@ -113,7 +113,7 @@ def main():
     cleanup_consumed_traces = args.cleanup_consumed_traces
     tier_stats_output = args.tier_stats_output
     execution_template_mode = args.execution_template_mode
-    if execution_template_mode == 'in-memory' and network_backend != 'analytical':
+    if execution_template_mode != 'legacy' and network_backend != 'analytical':
         raise RuntimeError('In-memory ET payloads currently require the analytical ASTRA backend')
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
@@ -159,7 +159,7 @@ def main():
         memory_binary = os.path.join(
             astra_sim, "build/astra_analytical/build/bin/AstraSim_Analytical_Congestion_Unaware"
         )
-        binary = memory_binary if execution_template_mode == 'in-memory' else legacy_binary
+        binary = memory_binary if execution_template_mode != 'legacy' else legacy_binary
         if not os.path.isfile(binary):
             raise RuntimeError(f'Analytical ASTRA binary is unavailable: {binary}')
     elif network_backend == 'ns3':
@@ -378,9 +378,13 @@ def main():
                     new_req, instance["hardware"], instance["npu_num"], node_id,
                     instance_id, inst2npu_mapping[instance_id],
                     enable_local_offloading,
-                    in_memory=(execution_template_mode == 'in-memory'),
+                    in_memory=(execution_template_mode != 'legacy'),
                 )
-            if execution_template_mode == 'in-memory':
+            if execution_template_mode == 'shared-template':
+                from inference_serving.execution_templates import build_template_bundle
+                bundle, _ = build_template_bundle(payloads, controller.sent_template_ids)
+                controller.write_template_bundle(p, bundle)
+            elif execution_template_mode == 'in-memory':
                 controller.write_payloads(p, payloads)
             else:
                 workload = get_workload(new_req, instance["hardware"], instance_id)

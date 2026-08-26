@@ -25,6 +25,20 @@ class ExecutionPayloadProtocolTest(unittest.TestCase):
         self.assertEqual(base64.b64decode(encoded["0"]), b"rank-zero")
         self.assertEqual(base64.b64decode(encoded["4"]), bytes([0, 1, 255]))
 
+    def test_controller_encodes_template_bundle_and_tracks_cached_ids(self):
+        process = _Process()
+        controller = Controller(total_num=2)
+        bundle = {
+            "templates": {"template-a": ["bm9kZQ=="]},
+            "bindings": {"0": {"template_id": "template-a"}},
+        }
+        controller.write_template_bundle(process, bundle)
+
+        line = process.stdin.getvalue()
+        self.assertTrue(line.startswith("ET_TEMPLATE_BUNDLE "))
+        self.assertEqual(json.loads(line[len("ET_TEMPLATE_BUNDLE ") : -1]), bundle)
+        self.assertEqual(controller.sent_template_ids, {"template-a"})
+
 
 if __name__ == "__main__":
     unittest.main()

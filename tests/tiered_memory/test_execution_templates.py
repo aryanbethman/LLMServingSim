@@ -2,6 +2,7 @@ import unittest
 
 from inference_serving.execution_templates import (
     AttributeProto,
+    build_template_bundle,
     GlobalMetadata,
     Node,
     TemplateStore,
@@ -59,6 +60,23 @@ class ExecutionTemplateTest(unittest.TestCase):
         self.assertEqual(store.summary()["references"], 1)
         store.release(second)
         self.assertEqual(store.summary(), {"templates": 0, "template_bytes": 0, "references": 0})
+
+    def test_bundle_sends_one_template_and_sparse_rank_overlays(self):
+        payloads = {0: rank_payload(0, 1), 1: rank_payload(1, 0)}
+        bundle, stats = build_template_bundle(payloads)
+
+        self.assertEqual(stats["ranks"], 2)
+        self.assertEqual(stats["unique_templates"], 1)
+        self.assertEqual(stats["templates_sent"], 1)
+        self.assertEqual(len(bundle["templates"]), 1)
+        self.assertEqual(set(bundle["bindings"]), {"0", "1"})
+        template_id = bundle["bindings"]["0"]["template_id"]
+        self.assertEqual(bundle["bindings"]["1"]["template_id"], template_id)
+
+        cached_bundle, cached_stats = build_template_bundle(payloads, {template_id})
+        self.assertEqual(cached_bundle["templates"], {})
+        self.assertEqual(cached_stats["templates_sent"], 0)
+        self.assertEqual(cached_bundle["bindings"], bundle["bindings"])
 
 
 if __name__ == "__main__":

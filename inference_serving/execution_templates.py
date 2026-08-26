@@ -8,6 +8,7 @@ rank overlay and reconstructed exactly before changing the simulator protocol.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -237,3 +238,53 @@ class TemplateStore:
             "template_bytes": sum(record.template.bytes for record in self._records.values()),
             "references": sum(record.references for record in self._records.values()),
         }
+
+def build_template_bundle(
+    payloads: Dict[int, bytes], known_template_ids: Optional[set[str]] = None,
+) -> Tuple[Dict[str, object], Dict[str, int]]:
+    """Create a JSON-safe structural-template bundle for ASTRA.
+
+    Each rank binds a template ID to a sparse overlay. A caller may provide the
+    IDs already sent to the long-lived ASTRA process; only templates absent from
+    that set are included in the bundle. The receiver caches immutable templates
+    for subsequent bindings.
+    """
+    known_template_ids = known_template_ids or set()
+    templates: Dict[str, List[str]] = {}
+    bindings: Dict[str, object] = {}
+    unique_template_ids = set()
+
+    for rank_id, payload in sorted(payloads.items()):
+        template, overlay = split_rank_et(payload)
+        unique_template_ids.add(template.template_id)
+        if template.template_id not in known_template_ids:
+            templates.setdefault(
+                template.template_id,
+                [base64.b64encode(node).decode("ascii") for node in template.node_payloads],
+            )
+
+        nodes: Dict[str, object] = {}
+        for node_index, node_overlay in enumerate(overlay.nodes):
+            if node_overlay.original_name is None and not node_overlay.rank_attributes:
+                continue
+            nodes[str(node_index)] = {
+                "name": node_overlay.original_name,
+                "attrs": [
+                    [entry.position, base64.b64encode(entry.payload).decode("ascii")]
+                    for entry in node_overlay.rank_attributes
+                ],
+            }
+        bindings[str(rank_id)] = {
+            "template_id": template.template_id,
+            "metadata": base64.b64encode(overlay.metadata_payload).decode("ascii"),
+            "nodes": nodes,
+        }
+
+    bundle = {"templates": templates, "bindings": bindings}
+    stats = {
+        "ranks": len(payloads),
+        "unique_templates": len(unique_template_ids),
+        "templates_sent": len(templates),
+        "wire_bytes_estimate": len(str(bundle).encode("utf-8")),
+    }
+    return bundle, stats

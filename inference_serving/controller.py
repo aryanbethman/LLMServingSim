@@ -8,6 +8,7 @@ class Controller():
         self.end_dict = {}
         self.total_num = total_num
         self.logger = get_logger(self.__class__)
+        self.sent_template_ids = set()
         for i in range(total_num):
             self.end_dict[i] = -1
 
@@ -46,6 +47,12 @@ class Controller():
         }
         p.stdin.write("ET_PAYLOADS " + json.dumps(encoded, separators=(",", ":")) + "\n")
         p.stdin.flush()
+    def write_template_bundle(self, p, bundle):
+        """Send structural ET templates plus sparse rank overlays to ASTRA."""
+        p.stdin.write("ET_TEMPLATE_BUNDLE " + json.dumps(bundle, separators=(",", ":")) + "\n")
+        p.stdin.flush()
+        self.sent_template_ids.update(bundle["templates"].keys())
+
 
     def parse_output(self, output):
         pattern = r"sys\[(\d+)\] iteration (\d+) finished, (\d+) cycles, exposed communication (\d+) cycles."
