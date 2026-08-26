@@ -94,7 +94,7 @@ in-memory ETFeeder rather than rank-file paths. The runtime selector is
 `--execution-template-mode in-memory` (analytical backend only); legacy
 file mode remains default.
 
-The controller framing test, C++ parser harness, feeder equivalence harness, tiered-memory unit suite, and analytical rebuild pass. Raw in-memory transport has also passed the complete 16-NPU end-to-end comparison; shared-template transport remains under the same validation.
+The controller framing test, C++ parser harness, feeder equivalence harness, tiered-memory unit suite, and analytical rebuild pass. Raw in-memory and shared-template transport have both passed complete 16-NPU end-to-end comparisons.
 The shared-template protocol is now implemented: controller sends SHA-256-addressed structural templates once and sparse rank overlays thereafter; ASTRA caches templates and reconstructs rank ET streams for the existing feeder. Aggregate transport metrics can be emitted as one JSON summary. The isolated 16-NPU validation completed with an exact legacy match and zero rank-ET files.
 
 The first shared-root 16-NPU run was stopped to prevent interference through the generated ASTRA input tree. The isolated ShareGPT-750 validation then completed with exit 0, zero dynamic rank-ET workload files, and an exact match to the retained file-mode control: 750 requests and 89,673,372,165 total clocks. The live controller-to-memory-feeder handoff and raw in-memory ET transport are therefore behaviorally equivalent to the legacy file mode at this workload/scale. This does not validate the remaining structural-template or streamed-metrics work.
