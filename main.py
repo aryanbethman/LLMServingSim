@@ -96,6 +96,8 @@ def main():
     num_req=args.num_req
     log_interval=args.log_interval
     network_backend = args.network_backend
+    retain_traces = args.retain_traces
+    tier_stats_output = args.tier_stats_output
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
     num_nodes = cluster["num_nodes"]
@@ -315,7 +317,7 @@ def main():
         # check request is done
         prompt_t, gen_t, reqs = schedulers[instance_id].add_done(id, sys, current)
         completed_batch_id = schedulers[instance_id].take_completed_batch_id()
-        if completed_batch_id is not None and not args.retain_traces:
+        if completed_batch_id is not None and not retain_traces:
             cleanup_batch_artifacts(
                 instances[instance_id]["hardware"], schedulers[instance_id].model,
                 instance_id, completed_batch_id,
@@ -563,8 +565,8 @@ def main():
         for i in range(num_instances):
             schedulers[i].save_output(output_file, is_append=False if i == 0 else True)
 
-    if args.tier_stats_output is not None and tiered_memory is not None:
-        tier_stats_path = args.tier_stats_output
+    if tier_stats_output is not None and tiered_memory is not None:
+        tier_stats_path = tier_stats_output
         if not os.path.isabs(tier_stats_path):
             tier_stats_path = os.path.join("..", tier_stats_path)
         os.makedirs(os.path.dirname(tier_stats_path) or ".", exist_ok=True)
