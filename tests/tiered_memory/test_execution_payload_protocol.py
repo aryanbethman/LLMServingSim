@@ -38,6 +38,17 @@ class ExecutionPayloadProtocolTest(unittest.TestCase):
         self.assertTrue(line.startswith("ET_TEMPLATE_BUNDLE "))
         self.assertEqual(json.loads(line[len("ET_TEMPLATE_BUNDLE ") : -1]), bundle)
         self.assertEqual(controller.sent_template_ids, {"template-a"})
+        self.assertEqual(
+            controller.get_template_transport_stats(),
+            {
+                "bundles": 1,
+                "wire_bytes": len(json.dumps(bundle, separators=(",", ":")).encode("utf-8")),
+                "template_definitions": 1,
+                "template_nodes": 1,
+                "rank_bindings": 1,
+                "cached_template_definitions": 1,
+            },
+        )
 
 
 if __name__ == "__main__":

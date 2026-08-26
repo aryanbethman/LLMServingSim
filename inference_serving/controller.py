@@ -9,6 +9,13 @@ class Controller():
         self.total_num = total_num
         self.logger = get_logger(self.__class__)
         self.sent_template_ids = set()
+        self.template_transport_stats = {
+            "bundles": 0,
+            "wire_bytes": 0,
+            "template_definitions": 0,
+            "template_nodes": 0,
+            "rank_bindings": 0,
+        }
         for i in range(total_num):
             self.end_dict[i] = -1
 
@@ -49,9 +56,23 @@ class Controller():
         p.stdin.flush()
     def write_template_bundle(self, p, bundle):
         """Send structural ET templates plus sparse rank overlays to ASTRA."""
-        p.stdin.write("ET_TEMPLATE_BUNDLE " + json.dumps(bundle, separators=(",", ":")) + "\n")
+        encoded = json.dumps(bundle, separators=(",", ":"))
+        p.stdin.write("ET_TEMPLATE_BUNDLE " + encoded + "\n")
         p.stdin.flush()
         self.sent_template_ids.update(bundle["templates"].keys())
+        self.template_transport_stats["bundles"] += 1
+        self.template_transport_stats["wire_bytes"] += len(encoded.encode("utf-8"))
+        self.template_transport_stats["template_definitions"] += len(bundle["templates"])
+        self.template_transport_stats["template_nodes"] += sum(
+            len(nodes) for nodes in bundle["templates"].values()
+        )
+        self.template_transport_stats["rank_bindings"] += len(bundle["bindings"])
+
+    def get_template_transport_stats(self):
+        return {
+            **self.template_transport_stats,
+            "cached_template_definitions": len(self.sent_template_ids),
+        }
 
 
     def parse_output(self, output):

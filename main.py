@@ -58,6 +58,7 @@ def main():
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
+    parser.add_argument('--execution-template-stats-output', type=str, help='optional JSON output for aggregate ET transport metrics', default=None)
     parser.add_argument(
         '--execution-template-mode',
         choices=['legacy', 'in-memory', 'shared-template'],
@@ -112,6 +113,7 @@ def main():
     network_backend = args.network_backend
     cleanup_consumed_traces = args.cleanup_consumed_traces
     tier_stats_output = args.tier_stats_output
+    execution_template_stats_output = args.execution_template_stats_output
     execution_template_mode = args.execution_template_mode
     if execution_template_mode != 'legacy' and network_backend != 'analytical':
         raise RuntimeError('In-memory ET payloads currently require the analytical ASTRA backend')
@@ -611,6 +613,18 @@ def main():
         with open(tier_stats_path, "w", encoding="utf-8") as tier_stats_file:
             json.dump(tier_summary, tier_stats_file, indent=2)
         print(f"Saved generic tier/fabric metrics to: {tier_stats_path}")
+
+    if execution_template_stats_output is not None:
+        template_stats_path = execution_template_stats_output
+        if not os.path.isabs(template_stats_path):
+            template_stats_path = os.path.join("..", template_stats_path)
+        os.makedirs(os.path.dirname(template_stats_path) or ".", exist_ok=True)
+        template_summary = controller.get_template_transport_stats()
+        template_summary["mode"] = execution_template_mode
+        template_summary["trace_artifacts"] = get_graph_artifact_stats()
+        with open(template_stats_path, "w", encoding="utf-8") as template_stats_file:
+            json.dump(template_summary, template_stats_file, indent=2)
+        print(f"Saved aggregate ET transport metrics to: {template_stats_path}")
     
 
 if __name__ == "__main__":
