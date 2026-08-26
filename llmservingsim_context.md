@@ -12,7 +12,7 @@ outputs, or results into this branch. Eviction is disabled for this project.
 
 - Remote repository: `/home/marvell/LLMServingSim` on `marvell@anjuna3.dashlab.in`.
 - Branch: `feature/tiered-memory-topology`.
-- Current branch head: `ecb91f6` (in-memory ET feeder); the generic tier/fabric prototype entered at `c242cc5`.
+- Current branch head: pending root protocol commit; the generic tier/fabric prototype entered at `c242cc5`.
 - The local project runtime is:
   `/home/marvell/LLMServingSim/env/bin/python3`.
 - Off-campus access uses:
@@ -84,6 +84,20 @@ This is a consumer-side prerequisite only. The controller still passes
 rank-file paths across stdin and Workload still selects the file constructor.
 The next integration slice is a framed template-bundle protocol over the
 existing controller pipe, followed by legacy/shared-mode equivalence tests.
+
+## Raw ET controller protocol
+
+The experimental raw-payload protocol is complete in source (ASTRA commit `b69d0d1`). Python sends an
+`ET_PAYLOADS` JSON/base64 command over the existing stdin controller
+pipe. The analytical frontend decodes rank ET bytes, and Workload uses the
+in-memory ETFeeder rather than rank-file paths. The runtime selector is
+`--execution-template-mode in-memory` (analytical backend only); legacy
+file mode remains default.
+
+The controller framing test, C++ parser harness, feeder equivalence harness,
+tiered-memory unit suite, and analytical rebuild pass. This is not yet an
+end-to-end simulation validation and it intentionally transports raw payloads.
+The next protocol revision will transmit structural templates plus rank overlays.
 
 ## Workloads
 

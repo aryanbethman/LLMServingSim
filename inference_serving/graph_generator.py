@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from time import time
 from .request import *
 from .logger import get_logger
@@ -31,8 +32,7 @@ def get_graph_artifact_stats():
     return dict(GRAPH_ARTIFACT_STATS)
 
 
-def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False):
-
+def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False, in_memory=False):
     cwd = os.getcwd()
     chakra = os.path.join(cwd, "extern/graph_frontend/chakra")
     os.chdir(chakra)
@@ -42,25 +42,43 @@ def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offse
     else:
         file_name = f'{hardware}/{batch.model}/instance{instance_id}_batch{batch.batch_id}'
 
-    workload_dir = f'../../../inputs/workload/{file_name}'
-    os.makedirs(workload_dir, exist_ok=True)
-    if not event:
-        GRAPH_ARTIFACT_STATS["workload_directories_generated"] += 1
-
-    cmd = f'python -m chakra.src.converter.converter LLM ' \
-            f'--input ../../../inputs/trace/{file_name}.txt ' \
-            f'--output ../../../inputs/workload/{file_name}/llm ' \
-            f'--num-npus {npu_num} ' \
-            f'--npu-offset {npu_offset}'
-
-    if enable_local_offloading:
-        cmd += ' --local-offloading'
-
-    logger.debug("Generating graph with command: %s", cmd, extra={"node_id": node_id, "instance_id": instance_id})
-
-    cmd = cmd.split()
+    trace_path = f'../../../inputs/trace/{file_name}.txt'
     try:
-        subprocess.run(cmd, text=True, check=True)
+        if in_memory:
+            graph_frontend = os.path.dirname(chakra)
+            if graph_frontend not in sys.path:
+                sys.path.insert(0, graph_frontend)
+            from chakra.src.converter.llm_converter import LLMConverter
+
+            converter = LLMConverter(
+                trace_path,
+                "in-memory",
+                npu_num,
+                npu_offset,
+                enable_local_offloading,
+            )
+            return converter.convert_to_payloads()
+
+        workload_dir = f'../../../inputs/workload/{file_name}'
+        os.makedirs(workload_dir, exist_ok=True)
+        if not event:
+            GRAPH_ARTIFACT_STATS["workload_directories_generated"] += 1
+
+        cmd = (
+            f'python -m chakra.src.converter.converter LLM '
+            f'--input {trace_path} '
+            f'--output ../../../inputs/workload/{file_name}/llm '
+            f'--num-npus {npu_num} '
+            f'--npu-offset {npu_offset}'
+        )
+        if enable_local_offloading:
+            cmd += ' --local-offloading'
+
+        logger.debug(
+            "Generating graph with command: %s", cmd,
+            extra={"node_id": node_id, "instance_id": instance_id},
+        )
+        subprocess.run(cmd.split(), text=True, check=True)
+        return None
     finally:
         os.chdir(cwd)
-    return

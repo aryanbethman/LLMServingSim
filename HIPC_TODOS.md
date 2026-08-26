@@ -62,9 +62,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         payloads and instantiate small mutable per-rank execution state, rather
         than opening llm.<rank>.et files. The C++ ETFeeder now accepts an
         immutable shared byte payload and builds its own mutable dependency
-        graph; it matched all 1,125 nodes of a real 70B ET. Remaining: transmit
-        a template bundle over the controller pipe and select this path from
-        Workload.
+        graph; it matched all 1,125 nodes of a real 70B ET. The experimental
+        raw-payload controller/Workload path is implemented and unit/build-tested;
+        end-to-end ShareGPT-750 validation remains. Remaining: transmit a
+        structural-template bundle over the controller pipe.
   - [ ] Add a legacy|shared-template mode; retain legacy as the default until
         exact TP=1/TP=4 output and timing equivalence tests pass.
   - [ ] Replace per-rank metric writes with a process-wide streaming aggregator

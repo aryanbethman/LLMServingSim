@@ -1,3 +1,5 @@
+import base64
+import json
 import re
 from .logger import get_logger
 
@@ -35,6 +37,15 @@ class Controller():
         p.stdin.write(input+'\n')
         p.stdin.flush()
         return
+
+    def write_payloads(self, p, payloads):
+        # Send rank-indexed ET bytes over the existing line-oriented pipe.
+        encoded = {
+            str(rank): base64.b64encode(payload).decode("ascii")
+            for rank, payload in payloads.items()
+        }
+        p.stdin.write("ET_PAYLOADS " + json.dumps(encoded, separators=(",", ":")) + "\n")
+        p.stdin.flush()
 
     def parse_output(self, output):
         pattern = r"sys\[(\d+)\] iteration (\d+) finished, (\d+) cycles, exposed communication (\d+) cycles."

@@ -58,6 +58,12 @@ def main():
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
+    parser.add_argument(
+        '--execution-template-mode',
+        choices=['legacy', 'in-memory'],
+        default='legacy',
+        help='legacy ET files (default) or experimental in-memory ET payloads',
+    )
     trace_policy = parser.add_mutually_exclusive_group()
     trace_policy.add_argument(
         '--cleanup-consumed-traces', action='store_true',
@@ -106,6 +112,9 @@ def main():
     network_backend = args.network_backend
     cleanup_consumed_traces = args.cleanup_consumed_traces
     tier_stats_output = args.tier_stats_output
+    execution_template_mode = args.execution_template_mode
+    if execution_template_mode == 'in-memory' and network_backend != 'analytical':
+        raise RuntimeError('In-memory ET payloads currently require the analytical ASTRA backend')
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
     num_nodes = cluster["num_nodes"]
@@ -357,10 +366,17 @@ def main():
                                node_id, instance_id, max_num_batched_tokens, placement[instance_id], block_mode_on[instance_id],
                                expert_routing_policy, enable_prefix_caching, enable_attn_offloading, power_model, pim_models[node_id], enable_attn_prediction, 
                                enable_sub_batch_interleaving, fp)
-                generate_graph(new_req, instance["hardware"], instance["npu_num"], node_id,
-                               instance_id, inst2npu_mapping[instance_id], enable_local_offloading)
-            workload = get_workload(new_req, instance["hardware"], instance_id)
-            controller.write_flush(p, workload)
+                payloads = generate_graph(
+                    new_req, instance["hardware"], instance["npu_num"], node_id,
+                    instance_id, inst2npu_mapping[instance_id],
+                    enable_local_offloading,
+                    in_memory=(execution_template_mode == 'in-memory'),
+                )
+            if execution_template_mode == 'in-memory':
+                controller.write_payloads(p, payloads)
+            else:
+                workload = get_workload(new_req, instance["hardware"], instance_id)
+                controller.write_flush(p, workload)
 
         # check time to store throughput
         if current > last_log + INTERVAL:
