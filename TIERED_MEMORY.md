@@ -56,11 +56,13 @@ PATH=/home/marvell/LLMServingSim/env/bin:$PATH \
   --tier-stats-output output/tiered_memory/sharegpt750.json
 ```
 
-Generated dynamic trace/workload artifacts are removed once all ranks finish a
-batch, which bounds peak disk/inode growth. Pass `--retain-traces` to keep them
-for debugging. Converter output remains rank-specific because ASTRA-Sim consumes
-per-rank ET files; content-addressed template reuse and in-memory rank
-instantiation are not yet implemented.
+Generated dynamic trace/workload artifacts are retained by default. For an
+explicit cleanup experiment, pass `--cleanup-consumed-traces`; this is
+experimental until ASTRA exposes an all-rank consumption acknowledgement.
+`--retain-traces` remains accepted for compatibility and is now a no-op.
+Converter output remains rank-specific because ASTRA-Sim consumes per-rank ET
+files; content-addressed template reuse and in-memory rank instantiation are not
+yet implemented.
 
 ## Evaluation matrix
 
@@ -78,10 +80,10 @@ baseline retained. Do not launch 96- or 1,096-NPU baseline runs unless directed.
 
 ## Validation status
 
-The cleanup path reduces retained trace/workload artifacts by deleting them after
-the scheduler reports a batch complete. It must not yet be treated as correctness
-validated: the current scheduler acknowledgement observes the first and last NPU,
-not an explicit all-rank ET-file lifetime acknowledgement. A retained-artifact
-control run and exact request/metric comparison are required before using
-cleanup-enabled measurements in the paper. See `llmservingsim_context.md` for the
-current run state and hand-off details.
+The cleanup experiment was behaviorally validated against a retained-artifact
+control: all 750 request rows and tracked simulated metrics matched exactly.
+However, ASTRA's controller protocol reports only the controller/end ranks to
+Python; its managed ranks consume their ET files internally. Therefore cleanup is
+explicit opt-in until ASTRA exposes an all-rank consumption acknowledgement.
+Report cleanup measurements as experimental, and use retained artifacts by default.
+See `llmservingsim_context.md` for the current run state and hand-off details.

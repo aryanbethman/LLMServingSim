@@ -39,32 +39,25 @@ when no `memory_tiers` section is provided.
   local HBM, host DRAM, CXL pool, remote HBM, and directed paths.
 - `--tier-stats-output`: exports transfer bytes/stalls, prefetch/admission
   information, link busy time/utilization, and tier occupancy.
-- `--retain-traces`: retains dynamic artifacts for debugging.
+- `--cleanup-consumed-traces`: explicit experimental cleanup; dynamic artifacts
+  are retained by default. `--retain-traces` remains a compatibility no-op.
 
 ## Trace-artifact scalability change
 
 Previous behavior retained every generated per-batch trace and Chakra workload
-directory. The prototype now calls `cleanup_batch_artifacts` after the scheduler
-declares a batch complete, deleting the trace text file and the converted workload
-directory.
+directory. Cleanup was behaviorally validated against a retained-artifact control:
+all 750 request rows and tracked simulated metrics matched exactly.
 
-This does not intentionally change model traces, request scheduling, memory capacity,
-or ASTRA configuration. It does change artifact lifetime.
+The ASTRA audit found that Python sees completion reports only from controller/end
+ranks. Managed ranks consume their ET files internally, so their lifetime is not
+explicitly acknowledged to Python. Cleanup is therefore deliberately explicit
+opt-in via `--cleanup-consumed-traces`; the default retains artifacts. This avoids
+claiming a stronger filesystem-lifetime guarantee than the current ASTRA interface
+provides.
 
-**Validation status: not yet accepted.** Completion currently means the scheduler has
-seen the first and last NPU completion events, not a formal all-rank filesystem-use
-acknowledgement. Before using cleanup-enabled data in the paper:
-
-1. Run the exact 16-NPU workload once with `--retain-traces`.
-2. Compare all request CSV rows and final simulated metrics exactly with the
-   cleanup-enabled run.
-3. Establish the ASTRA ET-file lifecycle, or replace the deletion trigger with an
-   explicit all-rank acknowledgement.
-4. Keep cleanup opt-in if this cannot be proven.
-
-A run-start bug caused by reusing `args` for the ASTRA subprocess command was found
-and fixed locally in `main.py`: `retain_traces` and `tier_stats_output` are now
-captured before that reuse. The fix is not yet committed.
+A run-start bug caused by reusing `args` for the ASTRA subprocess command was fixed
+in `main.py`: trace-policy and tier-stat arguments are captured before that reuse
+(commit `67fbfe5`).
 
 ## Workloads
 

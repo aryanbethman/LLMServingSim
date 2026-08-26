@@ -18,13 +18,13 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       20 peak artifacts / 4,299,676 bytes; retained exit 0, 750 requests,
       23m 30.84s, 79,665 artifacts / 17,081,453,333 bytes.
 - [x] Run commit 67fbfe5 with --retain-traces (completed; see validation log).
-- [~] Repeat the retained-trace run with interval artifact monitoring, so cleanup
-      and retained storage growth can be plotted on the same time axis.
-      Running in an isolated worktree with the validated ASTRA analytical build.
 - [x] Add analysis/compare_simulation_runs.py for exact CSV and metric comparison.
 - [x] Run the exact comparator after the retained control completes.
-- [ ] Establish ASTRA ET-file lifecycle or add explicit all-rank acknowledgement
-      before automatic deletion. Keep cleanup opt-in until this is proven.
+- [x] Audit ASTRA's ET-file lifecycle: Python sees controller/end-rank reports;
+      managed ranks consume ET files internally.
+- [x] Make artifact cleanup explicit opt-in (`--cleanup-consumed-traces`) until
+      ASTRA exposes an all-rank consumption acknowledgement.
+- [x] Validate trace-policy CLI mutual exclusion and tiered-memory unit suite (7 tests).
 - [x] Commit the main.py arguments-shadowing fix (67fbfe5).
 
 ## Simulator model
@@ -56,6 +56,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       72/96/1,096 logical-NPU scenarios.
 
 ## Validation and case studies
+
+- [~] Repeat the retained-trace run with interval artifact monitoring, so cleanup
+      and retained storage growth can be plotted on the same time axis.
+      Running in an isolated worktree with the validated ASTRA analytical build.
 
 - [ ] Collect authoritative calibration inputs for H100 HBM, host DRAM, CXL, and
       remote-HBM/silicon-photonics links.

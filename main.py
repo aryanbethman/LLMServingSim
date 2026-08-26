@@ -58,7 +58,15 @@ def main():
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
-    parser.add_argument('--retain-traces', action='store_true', help='retain generated trace/workload files after they are consumed', default=False)
+    trace_policy = parser.add_mutually_exclusive_group()
+    trace_policy.add_argument(
+        '--cleanup-consumed-traces', action='store_true',
+        help='remove dynamic trace/workload artifacts after a batch completes (experimental; disabled by default)',
+    )
+    trace_policy.add_argument(
+        '--retain-traces', action='store_true',
+        help='legacy compatibility flag; dynamic trace/workload artifacts are retained by default',
+    )
 
     args = parser.parse_args()
 
@@ -96,7 +104,7 @@ def main():
     num_req=args.num_req
     log_interval=args.log_interval
     network_backend = args.network_backend
-    retain_traces = args.retain_traces
+    cleanup_consumed_traces = args.cleanup_consumed_traces
     tier_stats_output = args.tier_stats_output
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
@@ -317,7 +325,7 @@ def main():
         # check request is done
         prompt_t, gen_t, reqs = schedulers[instance_id].add_done(id, sys, current)
         completed_batch_id = schedulers[instance_id].take_completed_batch_id()
-        if completed_batch_id is not None and not retain_traces:
+        if completed_batch_id is not None and cleanup_consumed_traces:
             cleanup_batch_artifacts(
                 instances[instance_id]["hardware"], schedulers[instance_id].model,
                 instance_id, completed_batch_id,
