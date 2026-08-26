@@ -99,10 +99,7 @@ tiered-memory unit suite, and analytical rebuild pass. This is not yet an
 end-to-end simulation validation and it intentionally transports raw payloads.
 The next protocol revision will transmit structural templates plus rank overlays.
 
-An initial shared-root 16-NPU run was stopped before it could interfere with the active PriceKV job, which uses the same generated ASTRA input tree. The replacement ShareGPT-750 validation runs in the isolated worktree at
-`/tmp/llmservingsim-tiered-results/npu16-inmemory-isolated`. Its first scheduling interval completed with all four TP=4 replicas running, and it has created zero dynamic rank-ET workload files. This proves the live controller-to-memory-feeder handoff has started correctly. Do not
-treat it as validated until it exits and is exactly compared with the retained
-file-mode control.
+An earlier shared-root 16-NPU run was stopped before it could interfere with the active PriceKV job, which uses the same generated ASTRA input tree. The isolated ShareGPT-750 validation then completed with exit 0, zero dynamic rank-ET workload files, and an exact match to the retained file-mode control: 750 requests and 89,673,372,165 total clocks. The live controller-to-memory-feeder handoff and raw in-memory ET transport are therefore behaviorally equivalent to the legacy file mode at this workload/scale. This does not validate the remaining structural-template or streamed-metrics work.
 
 ## Workloads
 
