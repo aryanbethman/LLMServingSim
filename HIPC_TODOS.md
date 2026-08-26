@@ -18,6 +18,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       20 peak artifacts / 4,299,676 bytes; retained exit 0, 750 requests,
       23m 30.84s, 79,665 artifacts / 17,081,453,333 bytes.
 - [x] Run commit 67fbfe5 with --retain-traces (completed; see validation log).
+- [ ] Repeat the retained-trace run with interval artifact monitoring, so cleanup
+      and retained storage growth can be plotted on the same time axis.
+      Blocked: a fresh ASTRA checkout has no analytical binary, and the host lacks
+      recursive build dependencies plus the Protobuf development library.
 - [x] Add analysis/compare_simulation_runs.py for exact CSV and metric comparison.
 - [x] Run the exact comparator after the retained control completes.
 - [ ] Establish ASTRA ET-file lifecycle or add explicit all-rank acknowledgement
@@ -41,10 +45,13 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 
 - [ ] Profile trace generation, Chakra conversion, ASTRA startup, filesystem
       operations, and Python memory on the validated 16-NPU workload.
-- [ ] Design shared/content-addressed execution templates for identical traces.
-- [ ] Investigate an ASTRA/Chakra interface for rank instantiation without
-      per-batch rank-file materialization.
-- [ ] Add streamed aggregate metrics and optional sampled per-request output.
+- [ ] Replace rank-specific ET-file materialization with shared,
+      content-addressed execution templates and in-memory rank instantiation.
+      Cleanup bounds retained storage, but it does not remove this creation cost.
+- [ ] Replace per-rank metric/output files with streamed aggregate metrics and
+      optional sampled per-request output.
+- [ ] Demonstrate bounded file count/storage and practical runtime at 72, 96,
+      and 1,096 logical NPUs before presenting those scale results.
 - [ ] Re-run the 16-NPU test after each scalability change; only then evaluate
       72/96/1,096 logical-NPU scenarios.
 
