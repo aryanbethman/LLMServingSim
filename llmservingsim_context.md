@@ -157,3 +157,8 @@ HIPC_TODOS.md.
 ## Retained-control validation result
 
 The retained-trace control completed. Exact comparison result: **MATCH**. Details: /tmp/llmservingsim-tiered-results/npu16-validation-comparison.log.
+
+The interval-monitored retained control also completed successfully: exit 0,
+23m 31s, 751 CSV lines, and 79,665 final artifacts /
+17,081,453,333 bytes. Its monitor.tsv supplies the retained growth curve for
+the cleanup-versus-retained presentation plot.

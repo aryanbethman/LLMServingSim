@@ -57,9 +57,9 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 
 ## Validation and case studies
 
-- [~] Repeat the retained-trace run with interval artifact monitoring, so cleanup
-      and retained storage growth can be plotted on the same time axis.
-      Running in an isolated worktree with the validated ASTRA analytical build.
+- [x] Repeat the retained-trace run with interval artifact monitoring: exit 0,
+      751 CSV lines, 23m 31s; final 79,665 artifacts / 17,081,453,333 bytes.
+      The paired cleanup/retained artifact-growth plot can now be produced.
 
 - [ ] Collect authoritative calibration inputs for H100 HBM, host DRAM, CXL, and
       remote-HBM/silicon-photonics links.
