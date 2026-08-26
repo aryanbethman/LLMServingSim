@@ -42,16 +42,25 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 
 ## Scalability engineering
 
-- [ ] **Primary scalability contribution:** replace ASTRA's rank-specific ET
+- [~] **Primary scalability contribution:** replace ASTRA's rank-specific ET
       files with shared/content-addressed execution templates and streamed
       aggregate metrics. Cleanup only bounds peak retained storage; this work
       makes the 72/96/1,096 logical-NPU experiments credible.
-- [ ] Profile trace generation, Chakra conversion, ASTRA startup, filesystem
-      operations, and Python memory on the validated 16-NPU workload.
-- [ ] Implement in-memory rank instantiation from shared templates.
-- [ ] Preserve optional sampled per-request output without per-rank metrics files.
-- [ ] Demonstrate bounded file count/storage and practical runtime at 72, 96,
-      and 1,096 logical NPUs before presenting those scale results.
+  - [ ] Measure rank-ET structural identity and converter/parse/filesystem cost
+        on the validated 16-NPU ShareGPT-750 workload.
+  - [ ] Refactor Chakra conversion into a callable API that returns ET payloads;
+        keep its current file-writing CLI as the legacy fallback.
+  - [ ] Add a content-addressed template store and reference-counted lifetime:
+        deduplicate identical rank payloads and retain only active templates.
+  - [ ] Extend ASTRA's ETFeeder/workload protocol to accept in-memory template
+        payloads and instantiate small mutable per-rank execution state, rather
+        than opening llm.<rank>.et files.
+  - [ ] Add a legacy|shared-template mode; retain legacy as the default until
+        exact TP=1/TP=4 output and timing equivalence tests pass.
+  - [ ] Replace per-rank metric writes with a process-wide streaming aggregator
+        and optional sampled per-request output.
+  - [ ] Prove bounded file count/storage, template reuse, runtime, and peak RAM
+        at 16, then 72, 96, and finally 1,096 logical NPUs.
 - [ ] Re-run the 16-NPU test after each scalability change; only then evaluate
       72/96/1,096 logical-NPU scenarios.
 
