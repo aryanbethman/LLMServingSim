@@ -13,9 +13,9 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 
 ## Approved upstream-port plan — after the old 256-NPU result
 
-- [ ] **Phase A — close the old-branch control.** Let the checkpointed
-      ShareGPT-750/Llama-3.1-70B/H100/TP=4 256-NPU run finish or reach its
-      two-hour cutoff. Keep its result as evidence for the old implementation;
+- [ ] **Phase A — close the old-branch control.** Let the unlimited
+      ShareGPT-750/Llama-3.1-70B/H100/FP16/TP=4 256-NPU run finish. Keep its result
+      as evidence for the old implementation;
       do not compare its simulated serving latency directly with RTX results.
 - [ ] **Phase B — establish a current-upstream baseline.** Use upstream
       `a4053bc` unchanged, the RTX PRO 6000 (96 GB) profile, and its bundled
@@ -72,8 +72,9 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       remains supplementary because it records only the Python parent.
 - [ ] **Primary simulator-scale sweep.** Fixed ShareGPT-750 rate-10 workload,
       Llama 3.1 70B/H100/FP16/TP=4, bounded cache 128, and logical-NPU ladder
-      16 → 72 → 256 → 512 → 1,096. Preserve a two-hour cutoff and report a
-      timeout as an operational limit. At 256+ use the bounded path only: the
+      16 → 72 → 256 → 512 → 1,096. The active 256-NPU run is explicitly
+      unlimited at user direction; record its full wall time. At 256+ use the
+      bounded path only: the
       full unbounded/bounded exact comparisons at 16 and 72 already validate
       cache lifecycle correctness without doubling large-run cost.
 - [ ] **Report simulator scaling, not TP scaling.** 256/512/1,096 mean 64/128/
@@ -224,9 +225,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         dynamic trace artifacts. Persistent ASTRA host monitoring is now
         implemented. The first 256-NPU bounded-128 attempt was preserved as a
         partial run and retired while paused with less than ten minutes left on
-        its two-hour cutoff. A clean, checkpointed 256-NPU bounded-128 run (64
-        TP=4 replicas) is now active at
-        `/home/marvell/hipc-results/npu256-template-reclaim-128-20260902-checkpoint4e803a0`.
+        its two-hour cutoff. A second checkpointed attempt was stopped at user
+        direction so that the cutoff could be removed. The current unlimited
+        256-NPU bounded-128 run (64 TP=4 replicas) is active at
+        `/home/marvell/hipc-results/npu256-template-reclaim-128-20260902-unlimited`.
         It persists `manifest.json` plus 5-second `host_resources.csv` samples
         with separate ASTRA/Python RSS, CPU, FDs, result bytes/files, and free
         disk/inodes. After this result, run 512 (128 replicas), then 1,096

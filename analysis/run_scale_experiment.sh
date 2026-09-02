@@ -2,8 +2,8 @@
 # Run one persistent fixed-workload simulator-scale experiment with monitoring.
 set -u
 
-if [[ $# -ne 4 ]]; then
-  echo "usage: $0 RESULT_DIR CLUSTER_CONFIG LOGICAL_NPUS TEMPLATE_CACHE_MAX_ENTRIES" >&2
+if [[ $# -ne 4 && $# -ne 5 ]]; then
+  echo "usage: $0 RESULT_DIR CLUSTER_CONFIG LOGICAL_NPUS TEMPLATE_CACHE_MAX_ENTRIES [TIMEOUT_SECONDS|none]" >&2
   exit 2
 fi
 
@@ -11,8 +11,14 @@ result=$1
 cluster_config=$2
 logical_npus=$3
 template_cache_max_entries=$4
+timeout_seconds=${5:-7200}
 repo=/home/marvell/LLMServingSim
 dataset=dataset/sharegpt_req750_rate10_llama.jsonl
+
+if [[ "$timeout_seconds" != none && ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "TIMEOUT_SECONDS must be a positive integer or none" >&2
+  exit 2
+fi
 
 if [[ -e "$result" ]] && { [[ -e "$result/run.sh" ]] || [[ -e "$result/manifest.json" ]] || [[ -e "$result/exit_status" ]]; }; then
   echo "result directory already contains run artifacts: $result" >&2
@@ -30,7 +36,13 @@ cd "$repo"
   --logical-npus "$logical_npus" \
   --template-cache-max-entries "$template_cache_max_entries"
 
-/usr/bin/time -v timeout --preserve-status 7200 \
+printf '%s\n' "timeout_seconds=$timeout_seconds" > "$result/runner_settings.txt"
+timeout_prefix=()
+if [[ "$timeout_seconds" != none ]]; then
+  timeout_prefix=(timeout --preserve-status "$timeout_seconds")
+fi
+
+/usr/bin/time -v "${timeout_prefix[@]}" \
   env PATH=/home/marvell/LLMServingSim/env/bin:$PATH \
   /home/marvell/LLMServingSim/env/bin/python3 main.py \
   --cluster-config "$cluster_config" \
