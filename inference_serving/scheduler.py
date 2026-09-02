@@ -1,6 +1,7 @@
 import pandas as pd
 from time import time
 import csv
+import os
 
 from .request import *
 from .utils import *
@@ -758,7 +759,13 @@ class Scheduler:
         
     # save requests information to an output file
     def save_output(self, output_file, is_append=False):
-        output_file = f'../{output_file}'
+        # The simulator normally runs from ``inference_serving`` and legacy
+        # relative output paths were therefore written one level up.  Do not
+        # prefix absolute paths: callers use them for disposable experiment
+        # result directories.
+        if not os.path.isabs(output_file):
+            output_file = os.path.join("..", output_file)
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
         mode = 'a' if is_append else 'w'
         with open(output_file, mode=mode, newline='') as file:
             # Initialize the CSV writer

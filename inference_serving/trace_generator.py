@@ -1,4 +1,6 @@
 import os
+from contextlib import nullcontext
+from io import StringIO
 import subprocess
 import re
 from .request import *
@@ -36,10 +38,18 @@ _attn_prediction_value_cache = {}
 
 logger = get_logger("TraceGenerator")
 
+
+def _open_trace_output(target):
+    """Open a legacy path or retain a caller-owned in-memory trace stream."""
+    if hasattr(target, "write"):
+        return nullcontext(target)
+    return open(target, "w")
+
 # Wrapper function that creates trace for a instance
 def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0, instance_id=0,
                     max_num_batched_tokens=2048, placement={}, block_mode_on=False, expert_routing_policy="RR",
-                    enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None, enable_attn_prediction=False, enable_sub_batch_interleaving=False, fp=16):
+                    enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None, enable_attn_prediction=False, enable_sub_batch_interleaving=False, fp=16,
+                    return_text=False):
 
     model = batch.model
     config = get_config(model)
@@ -51,7 +61,9 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
     evict_size = batch.evict
 
     output_path = f"inputs/trace/{hardware}/{batch.model}/instance{instance_id}_batch{batch.batch_id}.txt"
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    if not return_text:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    synthesized_trace = StringIO() if return_text else output_path
 
     # make trace
     if 'num_local_experts' in config: # MoE model
@@ -68,24 +80,28 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
 
     # make trace
     if not enable_sub_batch_interleaving:
-        _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, output_path,
+        _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, synthesized_trace,
                         placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
     else:
         batches = _make_sub_batch(batch)
         if len(batches) < 2 or len(batches[0].requests) == 0 or len(batches[1].requests) == 0:
             # not enough requests to split, fall back to normal trace generation
-            _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, output_path,
+            _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, synthesized_trace,
                         placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
         else:
-            _synthesize_interleaved_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batches, max_len, output_path,
+            _synthesize_interleaved_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batches, max_len, synthesized_trace,
                         placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
 
 
-    with open(output_path, 'r') as f:
-        dic = []
-        for line in f.readlines():
-            split = re.findall(r'\S+', line)
-            dic.append(split)
+    if return_text:
+        source_lines = synthesized_trace.getvalue().splitlines()
+    else:
+        with open(output_path, 'r') as f:
+            source_lines = f.readlines()
+    dic = []
+    for line in source_lines:
+        split = re.findall(r'\S+', line)
+        dic.append(split)
 
     # vllm: open output txt file and add load, evict mem 
     mem = []
@@ -105,7 +121,8 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
 
     result = mem + dic
 
-    with open(output_path, 'w') as f:
+    finalized_trace = StringIO() if return_text else output_path
+    with _open_trace_output(finalized_trace) as f:
         # instance type
         if pd_type == None:
             instance_type = 'COLOCATED'
@@ -127,7 +144,9 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
                 f.write(formatter(new_string, *result[i][1:]))
             else:
                 f.write(formatter(' '.join(result[i]),'','','','','','','','','',''))
-    return
+    if return_text:
+        return finalized_trace.getvalue()
+    return None
 
 # Generates trace for the batch
 def _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, output_path,
@@ -191,7 +210,7 @@ def _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node
         extra={"node_id": node_id, "instance_id": instance_id},
     )
 
-    with open(output_path, 'w') as f:
+    with _open_trace_output(output_path) as f:
         # embedding layer
         embedding_matching_row = _get_perf_row(perf_db, hardware, "embedding", total_len, 0, npus_per_group)
         emb_input, emb_weight, emb_output = calculate_sizes(model, embedding_matching_row["layer_name"], total_len, fp=fp)
@@ -622,7 +641,7 @@ def _synthesize_interleaved_trace(hardware, model, config, npu_num, npu_group, p
         extra={"node_id": node_id, "instance_id": instance_id},
     )
 
-    with open(output_path, 'w') as f:
+    with _open_trace_output(output_path) as f:
         # Batch 1 Embd -> QKV -> Attn
         # embedding layer
         embedding_matching_row = _get_perf_row(perf_db, hardware, "embedding", total_len_1, 0, npus_per_group)

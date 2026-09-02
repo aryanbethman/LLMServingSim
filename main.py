@@ -59,6 +59,20 @@ def main():
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
     parser.add_argument('--execution-template-stats-output', type=str, help='optional JSON output for aggregate ET transport metrics', default=None)
+    parser.add_argument('--compact-controller-protocol', action='store_true',
+                        help='use compact ASTRA READY/COMPLETE control records', default=False)
+    parser.add_argument(
+        '--template-cache-max-entries',
+        type=int,
+        default=0,
+        help='bound inactive ASTRA structural templates (0 keeps the compatibility cache)',
+    )
+    parser.add_argument(
+        '--template-bundle-builder',
+        choices=['payload', 'fused'],
+        default='payload',
+        help='shared-template construction: compatibility payload split (default) or direct converter fusion',
+    )
     parser.add_argument(
         '--execution-template-mode',
         choices=['legacy', 'in-memory', 'shared-template'],
@@ -115,8 +129,15 @@ def main():
     tier_stats_output = args.tier_stats_output
     execution_template_stats_output = args.execution_template_stats_output
     execution_template_mode = args.execution_template_mode
+    compact_controller_protocol = args.compact_controller_protocol
+    template_cache_max_entries = args.template_cache_max_entries
+    template_bundle_builder = args.template_bundle_builder
     if execution_template_mode != 'legacy' and network_backend != 'analytical':
         raise RuntimeError('In-memory ET payloads currently require the analytical ASTRA backend')
+    if template_cache_max_entries < 0:
+        raise RuntimeError('--template-cache-max-entries must be non-negative')
+    if template_cache_max_entries and execution_template_mode != 'shared-template':
+        raise RuntimeError('--template-cache-max-entries requires --execution-template-mode=shared-template')
     # ---------------------------------- Extract cluster config -----------------------------------
     cluster = build_cluster_config(astra_sim, args.cluster_config, args.enable_local_offloading, args.enable_attn_offloading)
     num_nodes = cluster["num_nodes"]
@@ -312,6 +333,10 @@ def main():
         args.append("--start-npu-ids="+start_npu_ids)
     if end_npu_ids != "":
         args.append("--end-npu-ids="+end_npu_ids)
+    if compact_controller_protocol:
+        args.append("--compact-controller-protocol=true")
+    if template_cache_max_entries:
+        args.append("--template-cache-max-entries="+str(template_cache_max_entries))
     if network_backend == 'ns3':
         args.append("--logical-topology-configuration="+astra_sim+"/inputs/logical_topology/logical_8nodes_1D.json")
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -319,8 +344,11 @@ def main():
     # ----------------------------------- Start simulation loop ------------------------------------
     # Starting simulation, one while loop processes one iteration
     while True:
-        out = controller.read_wait(p)
-        out_dict = controller.parse_output(out[-2])
+        if compact_controller_protocol:
+            out_dict = controller.read_completion(p)
+        else:
+            out = controller.read_wait(p)
+            out_dict = controller.parse_output(out[-2])
 
         if out_dict != None:
             sys = out_dict['sys']
@@ -372,19 +400,27 @@ def main():
                 # mark non-waiting state
                 waiting_request[instance_id] = False
                 instance = instances[instance_id]
-                generate_trace(new_req, instance["hardware"], instance["npu_num"], instance["npu_group"], instance["pd_type"], 
+                trace_text = generate_trace(new_req, instance["hardware"], instance["npu_num"], instance["npu_group"], instance["pd_type"],
                                node_id, instance_id, max_num_batched_tokens, placement[instance_id], block_mode_on[instance_id],
                                expert_routing_policy, enable_prefix_caching, enable_attn_offloading, power_model, pim_models[node_id], enable_attn_prediction, 
-                               enable_sub_batch_interleaving, fp)
+                               enable_sub_batch_interleaving, fp,
+                               return_text=(execution_template_mode != 'legacy'))
                 payloads = generate_graph(
                     new_req, instance["hardware"], instance["npu_num"], node_id,
                     instance_id, inst2npu_mapping[instance_id],
                     enable_local_offloading,
                     in_memory=(execution_template_mode != 'legacy'),
+                    trace_text=trace_text,
+                    shared_template=(execution_template_mode == 'shared-template'),
+                    known_template_ids=controller.sent_template_ids,
+                    fused_template_bundle=(template_bundle_builder == 'fused'),
                 )
             if execution_template_mode == 'shared-template':
-                from inference_serving.execution_templates import build_template_bundle
-                bundle, _ = build_template_bundle(payloads, controller.sent_template_ids)
+                if template_bundle_builder == 'fused':
+                    bundle, _ = payloads
+                else:
+                    from inference_serving.execution_templates import build_template_bundle
+                    bundle, _ = build_template_bundle(payloads, controller.sent_template_ids)
                 controller.write_template_bundle(p, bundle)
             elif execution_template_mode == 'in-memory':
                 controller.write_payloads(p, payloads)
@@ -524,7 +560,7 @@ def main():
     minutes, seconds = divmod(remainder, 60)
 
     # check all scheduled requests in astra-sim are well done
-    controller.check_end(p)
+    controller.check_end(p, compact_protocol=compact_controller_protocol)
 
     # calcuate prefix caching metrics
     total_requested_tokens = 0

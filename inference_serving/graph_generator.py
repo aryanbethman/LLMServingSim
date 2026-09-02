@@ -32,7 +32,7 @@ def get_graph_artifact_stats():
     return dict(GRAPH_ARTIFACT_STATS)
 
 
-def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False, in_memory=False):
+def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False, in_memory=False, trace_text=None, shared_template=False, known_template_ids=None, fused_template_bundle=False):
     cwd = os.getcwd()
     chakra = os.path.join(cwd, "extern/graph_frontend/chakra")
     os.chdir(chakra)
@@ -56,8 +56,16 @@ def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offse
                 npu_num,
                 npu_offset,
                 enable_local_offloading,
+                input_text=trace_text,
             )
-            return converter.convert_to_payloads()
+            if shared_template and fused_template_bundle:
+                return converter.convert_to_template_bundle(
+                    known_template_ids=known_template_ids,
+                    compact_metadata=trace_text is not None,
+                )
+            return converter.convert_to_payloads(
+                compact_metadata=trace_text is not None,
+            )
 
         workload_dir = f'../../../inputs/workload/{file_name}'
         os.makedirs(workload_dir, exist_ok=True)

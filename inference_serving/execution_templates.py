@@ -116,6 +116,77 @@ class _TemplateRecord:
     references: int = 0
 
 
+class TemplateCaptureStream:
+    """Capture one rank's ET as template structure instead of framed bytes.
+
+    ``LLMConverter`` creates protobuf messages one at a time.  The historical
+    shared-template path first wrote every message to a complete rank ET byte
+    stream and then parsed that stream back into protobufs here.  This sink
+    accepts those messages directly, preserving the exact normalisation and
+    overlay encoding used by :func:`split_rank_et` without the intermediate
+    rank payload.
+    """
+
+    def __init__(self):
+        self._metadata_payload: Optional[bytes] = None
+        self._node_payloads: List[bytes] = []
+        self._overlays: List[NodeOverlay] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def write_message(self, message) -> None:
+        if isinstance(message, GlobalMetadata):
+            if self._metadata_payload is not None:
+                raise ValueError("ET stream contains more than one global metadata record")
+            self._metadata_payload = message.SerializeToString()
+            return
+        if not isinstance(message, Node):
+            raise TypeError(f"Unsupported Chakra ET message: {type(message)!r}")
+        node_payload, overlay = _normalise_node(message)
+        self._node_payloads.append(node_payload)
+        self._overlays.append(overlay)
+
+    def split(self) -> Tuple[ExecutionTemplate, RankOverlay]:
+        if self._metadata_payload is None:
+            raise ValueError("ET stream has no global metadata record")
+        template_bytes = b"".join(_frame(payload) for payload in self._node_payloads)
+        template = ExecutionTemplate(
+            template_id=sha256(template_bytes).hexdigest(),
+            node_payloads=tuple(self._node_payloads),
+        )
+        return template, RankOverlay(self._metadata_payload, tuple(self._overlays))
+
+
+class TemplateBundleCollector:
+    """Build ASTRA's shared-template bundle directly from converter messages."""
+
+    def __init__(self, known_template_ids: Optional[set[str]] = None):
+        # Preserve a caller-provided empty set by reference.  Using ``or`` here
+        # substitutes a new set during the first batch and breaks the intended
+        # long-lived controller cache relationship.
+        self._known_template_ids = (
+            set() if known_template_ids is None else known_template_ids
+        )
+        self._streams: Dict[int, TemplateCaptureStream] = {}
+
+    def open_rank(self, rank_id: int) -> TemplateCaptureStream:
+        if rank_id in self._streams:
+            raise ValueError(f"Duplicate ET stream for rank {rank_id}")
+        stream = TemplateCaptureStream()
+        self._streams[rank_id] = stream
+        return stream
+
+    def build(self) -> Tuple[Dict[str, object], Dict[str, int]]:
+        splits = {
+            rank_id: stream.split() for rank_id, stream in self._streams.items()
+        }
+        return _build_template_bundle_from_splits(splits, self._known_template_ids)
+
+
 def _normalise_node(node) -> Tuple[bytes, NodeOverlay]:
     normalised = Node()
     normalised.CopyFrom(node)
@@ -239,23 +310,18 @@ class TemplateStore:
             "references": sum(record.references for record in self._records.values()),
         }
 
-def build_template_bundle(
-    payloads: Dict[int, bytes], known_template_ids: Optional[set[str]] = None,
+def _build_template_bundle_from_splits(
+    splits: Dict[int, Tuple[ExecutionTemplate, RankOverlay]],
+    known_template_ids: Optional[set[str]] = None,
 ) -> Tuple[Dict[str, object], Dict[str, int]]:
-    """Create a JSON-safe structural-template bundle for ASTRA.
-
-    Each rank binds a template ID to a sparse overlay. A caller may provide the
-    IDs already sent to the long-lived ASTRA process; only templates absent from
-    that set are included in the bundle. The receiver caches immutable templates
-    for subsequent bindings.
-    """
-    known_template_ids = known_template_ids or set()
+    """Encode pre-split ET streams into ASTRA's JSON-safe template bundle."""
+    # An empty caller cache is still the controller's cache; do not replace it.
+    known_template_ids = set() if known_template_ids is None else known_template_ids
     templates: Dict[str, List[str]] = {}
     bindings: Dict[str, object] = {}
     unique_template_ids = set()
 
-    for rank_id, payload in sorted(payloads.items()):
-        template, overlay = split_rank_et(payload)
+    for rank_id, (template, overlay) in sorted(splits.items()):
         unique_template_ids.add(template.template_id)
         if template.template_id not in known_template_ids:
             templates.setdefault(
@@ -282,9 +348,24 @@ def build_template_bundle(
 
     bundle = {"templates": templates, "bindings": bindings}
     stats = {
-        "ranks": len(payloads),
+        "ranks": len(splits),
         "unique_templates": len(unique_template_ids),
         "templates_sent": len(templates),
         "wire_bytes_estimate": len(str(bundle).encode("utf-8")),
     }
     return bundle, stats
+
+
+def build_template_bundle(
+    payloads: Dict[int, bytes], known_template_ids: Optional[set[str]] = None,
+) -> Tuple[Dict[str, object], Dict[str, int]]:
+    """Create a JSON-safe structural-template bundle from framed ET payloads.
+
+    This compatibility entry point retains the original payload-based API.
+    New converter code uses :class:`TemplateBundleCollector` to avoid creating
+    and reparsing those intermediate rank payloads.
+    """
+    splits = {
+        rank_id: split_rank_et(payload) for rank_id, payload in payloads.items()
+    }
+    return _build_template_bundle_from_splits(splits, known_template_ids)
