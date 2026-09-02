@@ -11,6 +11,34 @@ abstractions cannot represent placement-dependent contention or tail latency.
 Out of scope: eviction algorithms, KV-value/data-science analysis, a new serving
 scheduler, TP=72 fidelity, or measured NVL72 performance.
 
+## Approved upstream-port plan — after the old 256-NPU result
+
+- [ ] **Phase A — close the old-branch control.** Let the checkpointed
+      ShareGPT-750/Llama-3.1-70B/H100/TP=4 256-NPU run finish or reach its
+      two-hour cutoff. Keep its result as evidence for the old implementation;
+      do not compare its simulated serving latency directly with RTX results.
+- [ ] **Phase B — establish a current-upstream baseline.** Use upstream
+      `a4053bc` unchanged, the RTX PRO 6000 (96 GB) profile, and its bundled
+      dense Qwen3-32B BF16 TP=2 profile. This is the largest runnable dense
+      upstream configuration and is preferable to RTX 4090 (24 GB; only
+      Llama-3.1-8B TP=1 is profiled). Run the same ShareGPT-750 stream at 16,
+      72, and 256 logical NPUs, measuring wall time, process-tree/ASTRA RSS,
+      ET files/bytes, inode and FD pressure, and completion/results.
+- [ ] **Keep 70B as a defined follow-on, not an assumed profile.** RTX PRO 6000
+      is the best available upstream RTX target for a future 70B experiment,
+      but Llama-3.1-70B BF16 TP=2/TP=4 layerwise profiles must first be
+      generated and validated. Do not label a Qwen3-32B result as a 70B result.
+- [ ] **Phase C — port and revalidate the scale work.** Reimplement the
+      shared/content-addressed ET identity, rank overlays, direct ASTRA feeder,
+      active-template reclamation, compact protocol, and aggregate monitoring
+      against the new `serving/`/ASTRA interfaces. Then repeat the exact same
+      RTX PRO 6000/Qwen3-32B controls and compare simulation outputs before
+      reporting wall-time or filesystem improvements.
+- [ ] **Phase D — topology work on the ported upstream branch.** Build the
+      topology-aware tier/fabric model only after the ported scale path has a
+      correct upstream control. This avoids conflating topology results with a
+      representation or scalability regression.
+
 ## Immediate: correctness and reproducibility
 
 - [x] Complete the cleanup-enabled 16-NPU ShareGPT-750 run (exit 0).
@@ -194,8 +222,11 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
         only 1.4% slower than unbounded, while transport rose from 372.33 MB to
         658.80 MB due to intentional retransmission. Both runs emitted zero
         dynamic trace artifacts. Persistent ASTRA host monitoring is now
-        implemented and recording a live 256-NPU bounded-128 run (64 TP=4
-        replicas) at `/home/marvell/hipc-results/npu256-template-reclaim-128-20260902`.
+        implemented. The first 256-NPU bounded-128 attempt was preserved as a
+        partial run and retired while paused with less than ten minutes left on
+        its two-hour cutoff. A clean, checkpointed 256-NPU bounded-128 run (64
+        TP=4 replicas) is now active at
+        `/home/marvell/hipc-results/npu256-template-reclaim-128-20260902-checkpoint4e803a0`.
         It persists `manifest.json` plus 5-second `host_resources.csv` samples
         with separate ASTRA/Python RSS, CPU, FDs, result bytes/files, and free
         disk/inodes. After this result, run 512 (128 replicas), then 1,096
