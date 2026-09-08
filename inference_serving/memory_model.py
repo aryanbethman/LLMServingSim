@@ -14,13 +14,16 @@ class Device(Enum):
     CXL = 3
 
 class MemoryModel():
-    def __init__(self, model, instance_id, node_id, npu_num, npu_group, npu_mem, cpu_mem, block_size, fp, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0):
+    def __init__(self, model, instance_id, node_id, npu_num, npu_group, npu_mem, cpu_mem, block_size, fp, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0, pipeline_parallel_degree=1):
         self.model = model
         self.node_id = node_id
         self.instance_id = instance_id
         self.npu_num = npu_num
         self.npu_group = npu_group
         self.npus_per_group = npu_num // npu_group
+        self.pipeline_parallel_degree = pipeline_parallel_degree
+        if pipeline_parallel_degree < 1 or npu_num % pipeline_parallel_degree:
+            raise ValueError("pipeline_parallel_degree must divide npu_num")
         self.npu_mem = npu_mem * GB_TO_BYTE # GB -> Byte
         self.cpu_mem = cpu_mem * GB_TO_BYTE # GB -> Byte
         self.cxl_mem = cxl_mem * GB_TO_BYTE 
@@ -33,6 +36,12 @@ class MemoryModel():
         self.config = get_config(model)
         self.n_embd = self.config['hidden_size']
         self.n_layer = self.config['num_hidden_layers']
+        base_layers, remainder = divmod(self.n_layer, self.pipeline_parallel_degree)
+        self.stage_layers = [base_layers + (1 if stage < remainder else 0)
+                             for stage in range(self.pipeline_parallel_degree)]
+        # The scheduler has one admission model for all stages.  Reserve against
+        # the largest stage, which is safe for uneven layer splits.
+        self.local_layers = max(self.stage_layers)
         self.n_head = self.config['num_attention_heads']
         self.head_dim = self.n_embd // self.n_head
         self.kv_head = self.config.get("num_key_value_heads", self.n_head)  # fallback to n_head if not defined
@@ -136,14 +145,21 @@ class MemoryModel():
         _, post_ln, _ = calculate_sizes(self.model, 'post_layernorm', 1, tp=self.npus_per_group, fp=self.fp)
         block_weight += post_ln
 
-        weight += block_weight * self.n_layer
-
-        # ln_f
+        # A pipeline stage owns only its contiguous block interval.  The shared
+        # scheduler reserves against the largest stage, including endpoint layers
+        # on the first/last stage, rather than charging every GPU the full model.
+        stage_weights = []
+        # ln_f/lm_head are only resident on the last stage.
         _, ln_f, _ = calculate_sizes(self.model, 'final_layernorm', 1, tp=self.npus_per_group, fp=self.fp)
-        weight += ln_f
-        # lm_head
         _, lm_head, _ = calculate_sizes(self.model, 'lm_head', 1, tp=self.npus_per_group, fp=self.fp)
-        weight += lm_head
+        for stage, layer_count in enumerate(self.stage_layers):
+            stage_weight = block_weight * layer_count
+            if stage == 0:
+                stage_weight += embedding
+            if stage == self.pipeline_parallel_degree - 1:
+                stage_weight += ln_f + lm_head
+            stage_weights.append(stage_weight)
+        weight = max(stage_weights)
 
         self.logger.info(
             "NPU: model weight %dMB loaded",
@@ -159,7 +175,7 @@ class MemoryModel():
         # return batch_size = 1 to caclulate max batch_size in scheduler
 
         # K & V multiply 2 
-        return 2 * self.kv_dim * seq * self.n_layer * self.fp // self.npu_num
+        return 2 * self.kv_dim * seq * self.local_layers * self.fp // self.npus_per_group
     
     # get the total size of current kv cache for the request
     # used when adding prefilled request to decode instance.

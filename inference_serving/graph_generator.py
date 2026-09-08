@@ -72,21 +72,28 @@ def generate_graph(batch, hardware, npu_num, node_id=0, instance_id=0, npu_offse
         if not event:
             GRAPH_ARTIFACT_STATS["workload_directories_generated"] += 1
 
-        cmd = (
-            f'python -m chakra.src.converter.converter LLM '
-            f'--input {trace_path} '
-            f'--output ../../../inputs/workload/{file_name}/llm '
-            f'--num-npus {npu_num} '
-            f'--npu-offset {npu_offset}'
-        )
+        cmd = [
+            sys.executable, "-m", "chakra.src.converter.converter", "LLM",
+            "--input", trace_path,
+            "--output", f"../../../inputs/workload/{file_name}/llm",
+            "--num-npus", str(npu_num),
+            "--npu-offset", str(npu_offset),
+        ]
         if enable_local_offloading:
-            cmd += ' --local-offloading'
+            cmd.append("--local-offloading")
+
+        # Legacy conversion must use the checked-out Chakra source, just as the
+        # in-memory path does.  This keeps converter-format extensions (such as
+        # explicit PP block boundaries) from depending on a stale site package.
+        converter_env = os.environ.copy()
+        graph_frontend = os.path.dirname(chakra)
+        converter_env["PYTHONPATH"] = graph_frontend + os.pathsep + converter_env.get("PYTHONPATH", "")
 
         logger.debug(
-            "Generating graph with command: %s", cmd,
+            "Generating graph with command: %s", " ".join(cmd),
             extra={"node_id": node_id, "instance_id": instance_id},
         )
-        subprocess.run(cmd.split(), text=True, check=True)
+        subprocess.run(cmd, text=True, check=True, env=converter_env)
         return None
     finally:
         os.chdir(cwd)

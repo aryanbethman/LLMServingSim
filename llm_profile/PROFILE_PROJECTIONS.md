@@ -48,8 +48,14 @@ The memory report assumes **TP=8 × PP=2** on 16 H100-80GB GPUs: 50.73 GB BF16
 weights/GPU, 32,256 KV bytes/token/GPU, and 4.23 GB/GPU for one 128K-token
 context.  It is feasible with the configured 8 GB runtime plus 1 GB
 communication reserve.  A TP=8-only, eight-GPU serving run is intentionally
-rejected because it cannot hold the complete model.  The trace-generation smoke
-test bypasses admission only to validate profile lookup and trace construction.
+rejected because it cannot hold the complete model.
+
+The initial PP=2 execution path is implemented in
+`cluster_config/llama_405b_h100_tp8_pp2.json`.  It gives Chakra exact
+transformer-block boundaries, so the stage-0 ET sends after `down_proj_756` and
+stage 1 starts at `input_layernorm_757`; it does not split a transformer block.
+A 16-NPU, one-request ShareGPT-750 control completed in 6,092,460,472 simulated
+ns, with byte-equivalent request results in legacy and shared-template modes.
 
 Reproduce:
 

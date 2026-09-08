@@ -68,6 +68,7 @@ Pass a config file to `main.py` via `--cluster-config cluster_config/{name}.json
 | `npu_num` | Integer | Number of NPUs in this instance |
 | `npu_group` | Integer | NPU group size for tensor parallelism |
 | `pd_type` | String or null | `"prefill"`, `"decode"`, or `null` for combined |
+| `pipeline_parallel_degree` | Integer | Optional explicit PP stage count; when greater than one, it must equal `npu_group` and divide `npu_num` |
 
 ### Optional per-instance fields
 

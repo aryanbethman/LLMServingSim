@@ -43,9 +43,16 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       run emitted 32 template definitions, 1,808 rank bindings, and zero dynamic
       workload directories.  Reproduction must prepend the project `env/bin` to
       `PATH`, because graph-generator child processes invoke `python`.
-- [ ] **Phase 3:** implement/validate PP=2 placement before any full 405B
-      serving experiment.  Then run memory-feasible TP=8×PP=2 experiments,
-      keeping profile uncertainty as a sensitivity interval.
+- [~] **Phase 3:** implement/validate PP=2 placement before any full 405B
+      serving experiment.  **Implemented and smoke-validated:**
+      `pipeline_parallel_degree: 2` reserves the largest 63-layer stage rather
+      than the full model, preserves TP=8 within each stage, and emits an
+      explicit transformer-block boundary to Chakra.  The 16-NPU shared and
+      legacy one-request controls match exactly at 6,092,460,472 simulated ns.
+      Legacy ET inspection confirms rank 0 sends after `down_proj_756` and rank
+      8 receives at `input_layernorm_757`.  Next: run 405B ShareGPT-750,
+      -1000, and -1500 at nominal/low/high profile variants; keep every result
+      labeled a calibrated projection.
 
 ## Approved upstream-port plan — after the old 256-NPU result
 

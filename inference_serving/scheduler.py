@@ -18,7 +18,7 @@ class Scheduler:
                  npu_num, npu_group, npu_mem, cpu_mem, 
                  start_npu, pd_type, fp, block_size, req_num, 
                  prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0,
-                 tiered_memory=None, kv_tier=None, pd_transfer=None):
+            tiered_memory=None, kv_tier=None, pd_transfer=None, pipeline_parallel_degree=1):
         # all time realated variables are in using tick (system tick)
         # LLMServingSim uses Orca, vLLM technique at deafult
         self.model = model
@@ -50,7 +50,7 @@ class Scheduler:
         self.first_arrival_time = 0
 
         # memory model
-        self.memory = MemoryModel(model, instance_id, node_id, npu_num, npu_group, npu_mem, cpu_mem, block_size, fp, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem)
+        self.memory = MemoryModel(model, instance_id, node_id, npu_num, npu_group, npu_mem, cpu_mem, block_size, fp, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem, pipeline_parallel_degree)
 
         # logger
         self.logger = get_logger(self.__class__, node_id=node_id, instance_id=instance_id)

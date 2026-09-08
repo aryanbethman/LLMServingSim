@@ -49,7 +49,7 @@ def _open_trace_output(target):
 def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0, instance_id=0,
                     max_num_batched_tokens=2048, placement={}, block_mode_on=False, expert_routing_policy="RR",
                     enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None, enable_attn_prediction=False, enable_sub_batch_interleaving=False, fp=16,
-                    return_text=False):
+                    return_text=False, pipeline_parallel_degree=1):
 
     model = batch.model
     config = get_config(model)
@@ -123,6 +123,21 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
 
     finalized_trace = StringIO() if return_text else output_path
     with _open_trace_output(finalized_trace) as f:
+        # `npu_group` is the converter's pipeline-group count.  For an explicit
+        # PP configuration, give it transformer-block boundaries rather than
+        # letting it split the flat operator list in the middle of a block.
+        pipeline_boundaries = []
+        if pipeline_parallel_degree > 1:
+            block_starts = [i for i, op in enumerate(result) if op and op[0] == "input_layernorm"]
+            if len(block_starts) != config["num_hidden_layers"]:
+                raise RuntimeError("could not derive one pipeline boundary per transformer block")
+            base, remainder = divmod(config["num_hidden_layers"], pipeline_parallel_degree)
+            completed_blocks = 0
+            for stage in range(pipeline_parallel_degree - 1):
+                completed_blocks += base + (1 if stage < remainder else 0)
+                pipeline_boundaries.append(block_starts[completed_blocks])
+            pipeline_boundaries.append(len(result))
+
         # instance type
         if pd_type == None:
             instance_type = 'COLOCATED'
@@ -133,7 +148,10 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
         else:
             raise ValueError(f"Unknown instance type {pd_type}.")
 
-        f.write(f"{instance_type}\t\tmodel_parallel_NPU_group: {npu_group}\n")
+        pipeline_header = f"{instance_type}\t\tmodel_parallel_NPU_group: {npu_group}"
+        if pipeline_boundaries:
+            pipeline_header += "\t\tpipeline_block_boundaries: " + ",".join(map(str, pipeline_boundaries))
+        f.write(pipeline_header + "\n")
         f.write(str(len(result))+'\n')
         f.write(header())
 

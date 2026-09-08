@@ -35,6 +35,15 @@ separate from topology/eviction work:
   templates/1,808 rank bindings and zero dynamic workload directories.  Invoke
   full simulations with `PATH=/home/marvell/LLMServingSim/env/bin:$PATH` so
   graph-generator child Python processes can import Chakra.
+- **405B is now end-to-end runnable** in the initial 16-logical-H100
+  configuration (`cluster_config/llama_405b_h100_tp8_pp2.json`).  It uses TP=8
+  × PP=2: two contiguous 63-block stages.  Memory admission reserves the largest
+  stage, while KV capacity is accounted per stage.  Chakra now consumes explicit
+  transformer-block boundaries rather than splitting a flat operator list: rank
+  0 sends after `down_proj_756`; rank 8 starts at `input_layernorm_757`.
+  One raw ShareGPT-750 request completed in 6,092,460,472 simulated ns; legacy
+  and shared-template results match exactly.  These are calibrated-profile
+  results, not physical 405B/H100 measurements.
 
 ## Project boundary
 

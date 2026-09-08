@@ -1,0 +1,18 @@
+{
+  "num_nodes": 1,
+  "link_bw": 900,
+  "link_latency": 0,
+  "nodes": [{
+    "num_instances": 1,
+    "cpu_mem": {"mem_size": 1024, "mem_bw": 512, "mem_latency": 0},
+    "instances": [{
+      "model_name": "meta-llama/Llama-3.1-405B",
+      "hardware": "H100",
+      "npu_mem": {"mem_size": 80, "mem_bw": 3350, "mem_latency": 0},
+      "npu_num": 16,
+      "npu_group": 2,
+      "pipeline_parallel_degree": 2,
+      "pd_type": null
+    }]
+  }]
+}

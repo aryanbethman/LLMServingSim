@@ -270,6 +270,7 @@ def main():
             prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, pool_device, cxl_mem,
             tiered_memory=tiered_memory, kv_tier=instance.get("kv_tier"),
             pd_transfer=cluster["tiered_memory_config"]["pd_transfer"],
+            pipeline_parallel_degree=instance.get("pipeline_parallel_degree", 1),
         ))
 
     # Controller for astra-sim process communication
@@ -404,7 +405,8 @@ def main():
                                node_id, instance_id, max_num_batched_tokens, placement[instance_id], block_mode_on[instance_id],
                                expert_routing_policy, enable_prefix_caching, enable_attn_offloading, power_model, pim_models[node_id], enable_attn_prediction, 
                                enable_sub_batch_interleaving, fp,
-                               return_text=(execution_template_mode != 'legacy'))
+                               return_text=(execution_template_mode != 'legacy'),
+                               pipeline_parallel_degree=instance.get("pipeline_parallel_degree", 1))
                 payloads = generate_graph(
                     new_req, instance["hardware"], instance["npu_num"], node_id,
                     instance_id, inst2npu_mapping[instance_id],

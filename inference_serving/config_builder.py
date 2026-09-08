@@ -246,11 +246,18 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
             npu_mem = instance.get("npu_mem")
             npu_num = instance.get("npu_num")
             npu_group = instance.get("npu_group")
+            pipeline_parallel_degree = instance.get("pipeline_parallel_degree", 1)
             pd_type = instance.get("pd_type", None)
 
             # Check the right condition for npu_group and npu_num
             if npu_group > npu_num:
                 raise ValueError(f"npu_group ({npu_group}) cannot be larger than npu_num ({npu_num})")
+            if not isinstance(pipeline_parallel_degree, int) or pipeline_parallel_degree < 1:
+                raise ValueError("pipeline_parallel_degree must be a positive integer")
+            if npu_num % pipeline_parallel_degree:
+                raise ValueError("pipeline_parallel_degree must divide npu_num")
+            if pipeline_parallel_degree > 1 and npu_group != pipeline_parallel_degree:
+                raise ValueError("pipeline_parallel_degree requires npu_group to equal the number of pipeline stages")
 
             for key in mem_required_keys:
                 if key not in npu_mem:
