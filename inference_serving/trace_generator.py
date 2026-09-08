@@ -2201,13 +2201,53 @@ def _get_perf_row(perf_db, hardware, layer_name, input_len, kv_cache_len, tp_siz
                 f"No perf entry for key={key} in performance DB."
             )
     
+def _linear_attention_estimate(points, target):
+    """Interpolate, or conservatively extrapolate, one tabulated attention axis."""
+    points = sorted(points)
+    if len(points) == 1:
+        return points[0][1]
+    if target <= points[0][0]:
+        left, right = points[0], points[1]
+    elif target >= points[-1][0]:
+        left, right = points[-2], points[-1]
+    else:
+        right_index = next(i for i, point in enumerate(points) if point[0] >= target)
+        left, right = points[right_index - 1], points[right_index]
+    if left[0] == right[0]:
+        return left[1]
+    return left[1] + (target - left[0]) * (right[1] - left[1]) / (right[0] - left[0])
+
+
+def _estimate_attention_latency(perf_db, key):
+    """Estimate a missing `(axis0, axis1)` lookup from the tabulated surface.
+
+    Attention tables are finite measurement/projection grids, while batching can
+    legitimately create a larger batch or KV length.  This is bilinear where
+    the point lies inside the grid and linear extrapolation from the two nearest
+    edge rows outside it.  Exact table entries are never altered.
+    """
+    axis0, axis1 = key
+    by_axis0 = {}
+    for (row_axis0, row_axis1), row in perf_db.items():
+        by_axis0.setdefault(row_axis0, []).append((row_axis1, int(row["latency(ns)"])))
+    values = [
+        (row_axis0, _linear_attention_estimate(points, axis1))
+        for row_axis0, points in by_axis0.items()
+    ]
+    return max(1, int(round(_linear_attention_estimate(values, axis0))))
+
+
 def _get_attn_perf_row(perf_db, key):
-    try:
+    if key in perf_db:
         return perf_db[key]
-    except KeyError:
-        raise KeyError(
-            f"No perf entry for key={key} in attention performance DB."
-        )
+    latency = _estimate_attention_latency(perf_db, key)
+    row = {"latency(ns)": latency, "projected_attention_fallback": True}
+    perf_db[key] = row
+    logger.warning(
+        "Attention lookup key=%s is outside the tabulated profile; using projected %dns fallback",
+        key, latency,
+    )
+    return row
 
 def _make_attn_db_key(hardware, model, batch):
     _kv_cache_prediction_granularity = 64

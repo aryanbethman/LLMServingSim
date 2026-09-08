@@ -4,6 +4,7 @@ import os
 from inference_serving.memory_model import GB_TO_BYTE, MemoryModel
 from inference_serving.request import Batch, Request
 from inference_serving.trace_generator import generate_trace
+from inference_serving.trace_generator import _get_attn_perf_row
 from llm_profile.profile_projection import REPO
 
 
@@ -39,6 +40,18 @@ class PipelineParallelMemoryTest(unittest.TestCase):
             os.chdir(original_dir)
         self.assertEqual(trace.splitlines()[0],
                          "COLOCATED\t\tmodel_parallel_NPU_group: 2\t\tpipeline_block_boundaries: 757,1515")
+
+    def test_missing_attention_lookup_is_cached_projected_fallback(self):
+        table = {
+            (1, 0): {"latency(ns)": 10}, (1, 64): {"latency(ns)": 20},
+            (2, 0): {"latency(ns)": 20}, (2, 64): {"latency(ns)": 40},
+        }
+        exact = _get_attn_perf_row(table, (2, 64))
+        estimated = _get_attn_perf_row(table, (3, 128))
+        self.assertEqual(exact["latency(ns)"], 40)
+        self.assertTrue(estimated["projected_attention_fallback"])
+        self.assertGreater(estimated["latency(ns)"], exact["latency(ns)"])
+        self.assertIs(_get_attn_perf_row(table, (3, 128)), estimated)
 
 
 if __name__ == "__main__":

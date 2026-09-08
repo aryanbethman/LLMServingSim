@@ -57,6 +57,12 @@ stage 1 starts at `input_layernorm_757`; it does not split a transformer block.
 A 16-NPU, one-request ShareGPT-750 control completed in 6,092,460,472 simulated
 ns, with byte-equivalent request results in legacy and shared-template modes.
 
+The source attention table has a finite batch/KV grid.  When serving produces a
+valid point outside that grid, the simulator now retains every exact table row
+and uses a cached bilinear interpolation or edge-linear extrapolation only for
+the missing point.  The generated request result is therefore still a calibrated
+projection and must be labeled accordingly.
+
 Reproduce:
 
 ```bash

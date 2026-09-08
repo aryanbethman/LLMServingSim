@@ -44,6 +44,10 @@ separate from topology/eviction work:
   One raw ShareGPT-750 request completed in 6,092,460,472 simulated ns; legacy
   and shared-template results match exactly.  These are calibrated-profile
   results, not physical 405B/H100 measurements.
+- Projected attention tables have finite batch/KV grids.  Missing lookup points
+  now use a cached interpolation/edge-extrapolation fallback while exact rows
+  remain unchanged.  This is required for valid high-concurrency 405B batches
+  beyond the source TP=4 table's batch-256 limit and is explicitly a projection.
 
 ## Project boundary
 

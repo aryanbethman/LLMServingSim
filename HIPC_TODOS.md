@@ -53,6 +53,10 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       8 receives at `input_layernorm_757`.  Next: run 405B ShareGPT-750,
       -1000, and -1500 at nominal/low/high profile variants; keep every result
       labeled a calibrated projection.
+- [x] Add an explicit finite-grid attention fallback for projected profiles:
+      exact rows are preserved; missing batch/KV points use a cached bilinear or
+      edge-linear estimate.  This unblocks valid large dynamic batches such as
+      the 405B ShareGPT-750 batch-258/KV-384 point.
 
 ## Approved upstream-port plan — after the old 256-NPU result
 
