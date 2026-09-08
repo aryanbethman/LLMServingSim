@@ -37,6 +37,12 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       smoke test.  The full TP=8-only/eight-GPU admission smoke is expected to
       reject 405B (756 GB model > 640 GB aggregate HBM); full serving requires
       PP=2, which is Phase 3.
+- [x] Run an eight-logical-NPU TP=8 control using one raw ShareGPT-750 request:
+      legacy and fused shared-template modes both completed and the exact
+      comparator matched one request and 1,580,162,459 simulated ns.  The shared
+      run emitted 32 template definitions, 1,808 rank bindings, and zero dynamic
+      workload directories.  Reproduction must prepend the project `env/bin` to
+      `PATH`, because graph-generator child processes invoke `python`.
 - [ ] **Phase 3:** implement/validate PP=2 placement before any full 405B
       serving experiment.  Then run memory-feasible TP=8×PP=2 experiments,
       keeping profile uncertainty as a sensitivity interval.

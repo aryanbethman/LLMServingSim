@@ -29,6 +29,12 @@ separate from topology/eviction work:
   A direct in-memory trace-generation smoke test for 405B/TP=8 passed; it
   exercises profile lookup without trying to admit an impossible TP=8-only run.
   `llm_profile/PROFILE_PROJECTIONS.md` is the reproduction guide.
+- An 8-logical-NPU control using one request drawn from raw ShareGPT-750 confirms
+  profile/execution compatibility: legacy and fused shared-template results
+  match exactly (1,580,162,459 simulated ns).  The shared path emitted 32
+  templates/1,808 rank bindings and zero dynamic workload directories.  Invoke
+  full simulations with `PATH=/home/marvell/LLMServingSim/env/bin:$PATH` so
+  graph-generator child Python processes can import Chakra.
 
 ## Project boundary
 
