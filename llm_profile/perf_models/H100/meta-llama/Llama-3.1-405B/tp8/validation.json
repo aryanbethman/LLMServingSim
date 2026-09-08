@@ -1,0 +1,24 @@
+{
+  "failures": [],
+  "layer_names": [
+    "act_fn",
+    "attn",
+    "down_proj",
+    "embedding",
+    "final_layernorm",
+    "gate_proj",
+    "input_layernorm",
+    "k_proj",
+    "lm_head",
+    "o_proj",
+    "post_layernorm",
+    "q_proj",
+    "rope",
+    "up_proj",
+    "v_proj"
+  ],
+  "layer_rows": 30720,
+  "profile": "llm_profile/perf_models/H100/meta-llama/Llama-3.1-405B/tp8",
+  "target_tp": 8,
+  "valid": true
+}

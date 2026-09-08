@@ -1,0 +1,6 @@
+{
+  "median_absolute_error_pct": 3.885093051345806,
+  "p90_absolute_error_pct": 21.775255132905887,
+  "rows": 30720,
+  "interpretation": "Measured H100 TP=4 is held out; this validates the projection method, not TP=8 hardware."
+}

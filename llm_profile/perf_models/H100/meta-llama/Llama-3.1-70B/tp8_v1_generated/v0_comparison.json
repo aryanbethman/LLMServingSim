@@ -1,0 +1,31 @@
+{
+  "byte_identical": false,
+  "files": {
+    "layers.csv": {
+      "byte_identical": true,
+      "changed_rows": 0,
+      "generated_sha256": "985c4f2d7c18c69ac33750e4a6db0a61b077f43d9a23583acafa7c100217c0d6",
+      "reference_sha256": "985c4f2d7c18c69ac33750e4a6db0a61b077f43d9a23583acafa7c100217c0d6",
+      "semantic_identical": true
+    },
+    "predictions/attn_decode_predictions.csv": {
+      "byte_identical": true,
+      "changed_rows": 0,
+      "generated_sha256": "d8872b5995420dc3150511c2743e5c3ab2b6f78210656ab4c128a0e426d49639",
+      "reference_sha256": "d8872b5995420dc3150511c2743e5c3ab2b6f78210656ab4c128a0e426d49639",
+      "semantic_identical": true
+    },
+    "predictions/attn_prefill_predictions.csv": {
+      "byte_identical": false,
+      "changed_rows": 133056,
+      "generated_rows": 135168,
+      "generated_sha256": "3a03ce5bf0444d79d9ca4202d9f3ab4fd57ddcfe6658e47149a7a276c33f460c",
+      "reference_rows": 135168,
+      "reference_sha256": "cbb4d189b52391da8a5da21d48164255c21d4277d81b62afde233b980c054c18",
+      "semantic_identical": false
+    }
+  },
+  "generated": "llm_profile/perf_models/H100/meta-llama/Llama-3.1-70B/tp8_v1_generated",
+  "reference": "llm_profile/perf_models/H100/meta-llama/Llama-3.1-70B/tp8_v0_reference",
+  "semantic_identical": false
+}

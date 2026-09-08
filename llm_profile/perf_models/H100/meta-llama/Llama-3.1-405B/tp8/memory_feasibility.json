@@ -1,0 +1,17 @@
+{
+  "available_kv_bytes_per_gpu": 20268328448.0,
+  "communication_reserve_gb": 1.0,
+  "fits_weights_and_reserves": true,
+  "gpus_per_replica": 16,
+  "hbm_capacity_gb": 80.0,
+  "kv_bytes_per_token_per_gpu": 32256,
+  "max_kv_tokens_per_gpu": 628358,
+  "model": "meta-llama/Llama-3.1-405B",
+  "parameter_count_analytical": 405853372416,
+  "pipeline_parallel_degree": 2,
+  "precision": "bf16",
+  "runtime_reserve_gb": 8.0,
+  "single_128k_context_kv_gb_per_gpu": 4.227858432,
+  "tensor_parallel_degree": 8,
+  "weight_bytes_per_gpu": 50731671552.0
+}

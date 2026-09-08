@@ -11,6 +11,36 @@ abstractions cannot represent placement-dependent contention or tail latency.
 Out of scope: eviction algorithms, KV-value/data-science analysis, a new serving
 scheduler, TP=72 fidelity, or measured NVL72 performance.
 
+## Phase 1–2: TP=8 profile reproducibility and 405B calibration
+
+- [x] Preserve the existing H100/Llama-3.1-70B TP=8 directory as frozen
+      `tp8_v0_reference/`; retain v0 as the compatibility/canonical profile.
+- [x] Add `llm_profile/profile_projection.py`: deterministic TP=1/2/4 → TP=8
+      layer/attention projection, input-hash manifest, method version, strict
+      profile checks, and row-level v0 comparison.
+- [x] Generate `tp8_v1_generated/`.  Layers and decode attention are
+      semantically identical to v0; prefill through 2,048 tokens matches.  The
+      documented but unencoded v0 long-prefill rule means >2,048-token prefill
+      is a transparent v1 superseding variant, not a silent replacement.
+- [x] Back-test TP=1/2 → held-out TP=4.  Median absolute error is 3.89% and P90
+      is 21.78%, passing the 10%/25% method gates.  Generate per-layer error CSV
+      and a measured-vs-predicted/error-distribution plot.
+- [x] Add the analytical Llama-3.1-405B BF16 model contract and generate H100
+      TP=8 nominal/low/high calibrated projections.  The generator uses true
+      per-operator geometry; it never loads 405B weights and labels all output
+      `calibrated_projection_not_measured`.
+- [x] Add TP=8×PP=2 H100-80GB memory feasibility accounting: 50.73 GB
+      weights/GPU, 32,256 KV bytes/token/GPU, 4.23 GB for one 128K context/GPU,
+      and 628,358 available KV tokens/GPU with the stated reserves.
+- [x] Validate generated profile structure, ASTRA attention-pickle schema,
+      held-out error gates, and a direct in-memory 405B TP=8 trace-generation
+      smoke test.  The full TP=8-only/eight-GPU admission smoke is expected to
+      reject 405B (756 GB model > 640 GB aggregate HBM); full serving requires
+      PP=2, which is Phase 3.
+- [ ] **Phase 3:** implement/validate PP=2 placement before any full 405B
+      serving experiment.  Then run memory-feasible TP=8×PP=2 experiments,
+      keeping profile uncertainty as a sensitivity interval.
+
 ## Approved upstream-port plan — after the old 256-NPU result
 
 - [ ] **Phase A — diagnose before retrying the old-branch control.** The

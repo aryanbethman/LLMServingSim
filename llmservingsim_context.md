@@ -1,6 +1,34 @@
 # LLMServingSim HiPC Context
 
-_Last updated: 2026-08-26_
+_Last updated: 2026-09-09_
+
+## Current Phase 1–2 profile status
+
+The active feature branch now contains a deterministic profile-projection path,
+separate from topology/eviction work:
+
+- `llm_profile/profile_projection.py` reconstructs H100/Llama-3.1-70B TP=8
+  from checked-in TP=1/2/4 measurements and writes manifests with source hashes,
+  source/Git hashes, method version, and explicit measurement status.
+- `tp8_v0_reference/` freezes the historic TP=8 profile.  Its generated v1
+  successor matches all layer and decode-attention rows semantically, and
+  prefill rows through 2,048 tokens.  The historic long-prefill rule was not
+  encoded, so changed >2,048-token rows are recorded in `v0_comparison.json`;
+  v0 remains canonical for compatibility.
+- The held-out TP1/2→TP4 back-test is 3.89% median / 21.78% P90 absolute error,
+  satisfying the 10%/25% gates.  CSV/PNG evidence lives in the v1
+  `calibration/` directory.
+- `model_config/meta-llama/Llama-3.1-405B.json` and the generated H100/405B
+  TP=8 nominal/low/high profiles are calibrated projections, not measurements.
+  They use 126 layers, hidden 16,384, intermediate 53,248, 128 Q heads, 8 KV
+  heads, BF16, and 131,072 context.
+- The 405B memory calculator assumes TP=8×PP=2 (16 H100-80GB GPUs): 50.73 GB
+  weights/GPU and 32,256 KV bytes/token/GPU.  TP=8 alone is intentionally
+  capacity-infeasible; PP=2 is required before a full serving run.
+- Five profile-projection tests and the 14 existing tiered-memory tests pass.
+  A direct in-memory trace-generation smoke test for 405B/TP=8 passed; it
+  exercises profile lookup without trying to admit an impossible TP=8-only run.
+  `llm_profile/PROFILE_PROJECTIONS.md` is the reproduction guide.
 
 ## Project boundary
 
