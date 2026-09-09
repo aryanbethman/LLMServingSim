@@ -59,8 +59,16 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
 - [x] Add --profile-variant nominal|low|high so uncertainty runs select
       immutable generated profiles, rather than overwriting nominal calibration.
       Profile-cache identity includes the selected variant.
-- [ ] Run 405B ShareGPT-750 low then high variants, followed by
-      ShareGPT-1000/-1500. Keep every result labeled a calibrated projection.
+- [x] Complete the 405B/ShareGPT-750 low/high sensitivity pair. All variants
+      completed 750/750 records with zero dynamic workload directories. The
+      calibrated uncertainty band is: low/nominal/high throughput 6.37/5.31/4.54
+      req/s; mean TTFT 230.81/388.54/648.61 ms; p99 TTFT
+      692.76/1,118.57/1,861.73 ms; mean TPOT 94.93/148.88/209.23 ms; and p99
+      TPOT 141.81/263.79/453.33 ms. Simulated makespan is 4m11.519s /
+      3m47.040s / 3m32.443s. It is a scheduler-dependent end-to-end quantity,
+      not a substitute for the request latency band.
+- [ ] Do not start ShareGPT-1000/-1500 until requested. Keep every result
+      labeled a calibrated projection.
 - [x] Add an explicit finite-grid attention fallback for projected profiles:
       exact rows are preserved; missing batch/KV points use a cached bilinear or
       edge-linear estimate.  This unblocks valid large dynamic batches such as

@@ -56,7 +56,13 @@ separate from topology/eviction work:
   The explicit --profile-variant nominal|low|high command-line selector resolves
   immutable profile directories and includes the variant in every in-process
   profile-cache key; uncertainty runs therefore cannot contaminate nominal data.
-  Low/high ShareGPT-750 runs are the next validation step.
+  The low/high ShareGPT-750 sensitivity pair is complete. All three variants
+  completed 750 requests and created zero dynamic workload directories. Low /
+  nominal / high: throughput 6.37 / 5.31 / 4.54 req/s; mean TTFT 230.81 /
+  388.54 / 648.61 ms; p99 TTFT 692.76 / 1,118.57 / 1,861.73 ms; mean TPOT
+  94.93 / 148.88 / 209.23 ms; p99 TPOT 141.81 / 263.79 / 453.33 ms. This is
+  an uncertainty band for a calibrated projection, not physical measurement.
+  Do not begin ShareGPT-1000/-1500 until requested.
 
 ## Project boundary
 
