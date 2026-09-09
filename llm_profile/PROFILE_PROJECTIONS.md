@@ -56,6 +56,8 @@ transformer-block boundaries, so the stage-0 ET sends after `down_proj_756` and
 stage 1 starts at `input_layernorm_757`; it does not split a transformer block.
 A 16-NPU, one-request ShareGPT-750 control completed in 6,092,460,472 simulated
 ns, with byte-equivalent request results in legacy and shared-template modes.
+The first full 750-request nominal workload completed with exit 0 in 3m47.040s
+simulated time (5.31 req/s); its output contains all 750 request records.
 
 The source attention table has a finite batch/KV grid.  When serving produces a
 valid point outside that grid, the simulator now retains every exact table row

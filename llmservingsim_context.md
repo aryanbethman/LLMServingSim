@@ -42,12 +42,21 @@ separate from topology/eviction work:
   transformer-block boundaries rather than splitting a flat operator list: rank
   0 sends after `down_proj_756`; rank 8 starts at `input_layernorm_757`.
   One raw ShareGPT-750 request completed in 6,092,460,472 simulated ns; legacy
-  and shared-template results match exactly.  These are calibrated-profile
-  results, not physical 405B/H100 measurements.
+  and shared-template results match exactly. The full nominal ShareGPT-750
+  workload now also completed: 750/750 records, 3m47.040s simulated time,
+  5.31 req/s, mean/p99 TTFT 388.54/1,118.57 ms, and mean/p99 TPOT
+  148.88/263.79 ms. Its persistent result directory is
+  /home/marvell/hipc-results/llama405b-h100-tp8-pp2-sharegpt750-nominal-retry1-20260909/
+  (2.3 MB retained). These are calibrated-profile results, not physical
+  405B/H100 measurements.
 - Projected attention tables have finite batch/KV grids.  Missing lookup points
   now use a cached interpolation/edge-extrapolation fallback while exact rows
   remain unchanged.  This is required for valid high-concurrency 405B batches
   beyond the source TP=4 table's batch-256 limit and is explicitly a projection.
+  The explicit --profile-variant nominal|low|high command-line selector resolves
+  immutable profile directories and includes the variant in every in-process
+  profile-cache key; uncertainty runs therefore cannot contaminate nominal data.
+  Low/high ShareGPT-750 runs are the next validation step.
 
 ## Project boundary
 

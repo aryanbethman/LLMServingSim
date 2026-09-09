@@ -57,6 +57,12 @@ def main():
     parser.add_argument('--log-interval', type=float, help='interval to log throughput (sec)', default=0.5)
     parser.add_argument('--log-level', type=str, choices=['WARNING', 'INFO', 'DEBUG'], help='log level to use', default='WARNING')
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], help='network backend to use', default='analytical')
+    parser.add_argument(
+        '--profile-variant',
+        choices=['nominal', 'low', 'high'],
+        default='nominal',
+        help='select the nominal profile or a generated uncertainty variant',
+    )
     parser.add_argument('--tier-stats-output', type=str, help='optional JSON output for generic tier/fabric metrics', default=None)
     parser.add_argument('--execution-template-stats-output', type=str, help='optional JSON output for aggregate ET transport metrics', default=None)
     parser.add_argument('--compact-controller-protocol', action='store_true',
@@ -132,6 +138,10 @@ def main():
     compact_controller_protocol = args.compact_controller_protocol
     template_cache_max_entries = args.template_cache_max_entries
     template_bundle_builder = args.template_bundle_builder
+    # Trace generation resolves performance databases relative to the ASTRA
+    # working directory. Keep variants process-local so nominal and uncertainty
+    # runs cannot overwrite one another's profile files.
+    os.environ['LLMSERVINGSIM_PROFILE_VARIANT'] = args.profile_variant
     if execution_template_mode != 'legacy' and network_backend != 'analytical':
         raise RuntimeError('In-memory ET payloads currently require the analytical ASTRA backend')
     if template_cache_max_entries < 0:

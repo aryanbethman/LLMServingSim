@@ -49,10 +49,18 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       than the full model, preserves TP=8 within each stage, and emits an
       explicit transformer-block boundary to Chakra.  The 16-NPU shared and
       legacy one-request controls match exactly at 6,092,460,472 simulated ns.
-      Legacy ET inspection confirms rank 0 sends after `down_proj_756` and rank
-      8 receives at `input_layernorm_757`.  Next: run 405B ShareGPT-750,
-      -1000, and -1500 at nominal/low/high profile variants; keep every result
-      labeled a calibrated projection.
+      Legacy ET inspection confirms rank 0 sends after down_proj_756 and rank
+      8 receives at input_layernorm_757.
+- [x] Complete the 16-NPU 405B/ShareGPT-750 nominal full workload:
+      exit 0, 750/750 request records, 3m47.040s simulated time, 5.31 req/s,
+      mean/p99 TTFT 388.54/1,118.57 ms, mean/p99 TPOT 148.88/263.79 ms, and
+      2.3 MB retained output. Result directory:
+      /home/marvell/hipc-results/llama405b-h100-tp8-pp2-sharegpt750-nominal-retry1-20260909/.
+- [x] Add --profile-variant nominal|low|high so uncertainty runs select
+      immutable generated profiles, rather than overwriting nominal calibration.
+      Profile-cache identity includes the selected variant.
+- [ ] Run 405B ShareGPT-750 low then high variants, followed by
+      ShareGPT-1000/-1500. Keep every result labeled a calibrated projection.
 - [x] Add an explicit finite-grid attention fallback for projected profiles:
       exact rows are preserved; missing batch/KV points use a cached bilinear or
       edge-linear estimate.  This unblocks valid large dynamic batches such as

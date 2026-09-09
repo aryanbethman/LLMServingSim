@@ -38,6 +38,24 @@ _attn_prediction_value_cache = {}
 
 logger = get_logger("TraceGenerator")
 
+def _profile_dir(hardware, model, tp):
+    """Return the selected immutable profile directory.
+
+    Nominal is the legacy-compatible location. Generated uncertainty variants
+    live below it and are selected explicitly at run time, never by copying
+    over the nominal calibration.
+    """
+    base = os.path.join("..", "llm_profile", "perf_models", hardware, model, f"tp{tp}")
+    variant = os.environ.get("LLMSERVINGSIM_PROFILE_VARIANT", "nominal")
+    if variant == "nominal":
+        return base, variant
+    if variant not in {"low", "high"}:
+        raise ValueError(f"unknown profile variant: {variant}")
+    selected = os.path.join(base, "variants", variant)
+    if not os.path.isdir(selected):
+        raise FileNotFoundError(f"profile variant directory not found: {selected}")
+    return selected, variant
+
 
 def _open_trace_output(target):
     """Open a legacy path or retain a caller-owned in-memory trace stream."""
@@ -2013,11 +2031,12 @@ def _load_perf_db_dict(hardware, model, tp):
     Returns:
         perf_db: dict[(layer_name, input_len, kv_cache_len) -> row_dict]
     """
-    cache_key = (hardware, model, tp)
+    profile_dir, variant = _profile_dir(hardware, model, tp)
+    cache_key = (hardware, model, tp, variant)
     if cache_key in _perf_db_cache:
         return _perf_db_cache[cache_key]
 
-    file_path = f"../llm_profile/perf_models/{hardware}/{model}/tp{tp}/layers.csv"
+    file_path = os.path.join(profile_dir, "layers.csv")
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"Perf CSV not found: {file_path}")
 
@@ -2055,14 +2074,14 @@ def _load_perf_db_dict(hardware, model, tp):
     return perf_db
 
 def _load_attn_perf_db_dict(hardware, model, tp):
-    prefill_cache_key = (hardware, model, "prefill")
-    decode_cache_key = (hardware, model, "decode")
+    profile_dir, variant = _profile_dir(hardware, model, tp)
+    prefill_cache_key = (hardware, model, tp, variant, "prefill")
+    decode_cache_key = (hardware, model, tp, variant, "decode")
     
     if (prefill_cache_key in _attn_perf_db_cache) and decode_cache_key in _attn_perf_db_cache:
         return {"prefill": _attn_perf_db_cache[prefill_cache_key], "decode": _attn_perf_db_cache[decode_cache_key]}
     
-    cache_dir = f"../llm_profile/perf_models/{hardware}/{model}/tp{tp}/predictions"
-    os.makedirs(cache_dir, exist_ok=True)
+    cache_dir = os.path.join(profile_dir, "predictions")
     prefill_pkl_path = os.path.join(cache_dir, f"attn_prefill_prediction_dict.pkl")
     decode_pkl_path = os.path.join(cache_dir, f"attn_decode_prediction_dict.pkl")
 
@@ -2083,11 +2102,11 @@ def _load_attn_perf_db_dict(hardware, model, tp):
         )
         return {"prefill": prefill_perf_db, "decode": decode_perf_db}
     
-    prefill_file_path = f"../llm_profile/perf_models/{hardware}/{model}/tp{tp}/predictions/attn_prefill_predictions.csv"
+    prefill_file_path = os.path.join(cache_dir, "attn_prefill_predictions.csv")
     if not os.path.isfile(prefill_file_path):
         raise FileNotFoundError(f"Perf CSV not found: {prefill_file_path}")
 
-    decode_file_path = f"../llm_profile/perf_models/{hardware}/{model}/tp{tp}/predictions/attn_decode_predictions.csv"
+    decode_file_path = os.path.join(cache_dir, "attn_decode_predictions.csv")
     if not os.path.isfile(decode_file_path):
         raise FileNotFoundError(f"Perf CSV not found: {decode_file_path}")
 
@@ -2278,12 +2297,10 @@ def _load_attn_predictor(hardware: str, model: str, tp: int):
     Returns:
         (xgb_model, feature_cols, meta_dict)
     """
-    cache_key = (hardware, model, tp)
+    model_dir, variant = _profile_dir(hardware, model, tp)
+    cache_key = (hardware, model, tp, variant)
     if cache_key in _attn_predictor_cache:
         return _attn_predictor_cache[cache_key]
-
-    base_dir = "../llm_profile/perf_models"
-    model_dir = os.path.join(base_dir, hardware, model, f"tp{tp}")
 
     # XGBoost path
     # model_path = os.path.join(model_dir, f"xgb_model.json")
