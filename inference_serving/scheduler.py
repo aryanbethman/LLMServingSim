@@ -18,7 +18,8 @@ class Scheduler:
                  npu_num, npu_group, npu_mem, cpu_mem, 
                  start_npu, pd_type, fp, block_size, req_num, 
                  prioritize_prefill, enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage, cxl_mem=0,
-            tiered_memory=None, kv_tier=None, pd_transfer=None, pipeline_parallel_degree=1):
+            tiered_memory=None, kv_tier=None, pd_transfer=None, pipeline_parallel_degree=1,
+            compute_endpoint=None, baseline_kv_tier=None):
         # all time realated variables are in using tick (system tick)
         # LLMServingSim uses Orca, vLLM technique at deafult
         self.model = model
@@ -40,6 +41,8 @@ class Scheduler:
         self.tiered_memory = tiered_memory
         self.kv_tier = kv_tier
         self.pd_transfer = pd_transfer or {}
+        self.compute_endpoint = compute_endpoint
+        self.baseline_kv_tier = baseline_kv_tier or kv_tier
         self._completed_batch_id = None
         # lists are sorted in arrival time manner
         self.request = [] # list of requests
@@ -246,6 +249,23 @@ class Scheduler:
             # add alredy fired system
             batch.fired.append(sys)
             batch.requests.extend(batch_req)
+            # Local-HBM attention traffic is already represented by the measured
+            # layer profile. For a non-local KV tier, account for the additional
+            # tier service and return fabric path as an explicit decode-trace
+            # operation. This keeps legacy/local configurations unchanged.
+            batch.kv_access_latency_ns = 0
+            if (self.tiered_memory is not None and self.pd_type == "decode"
+                    and self.kv_tier is not None and self.compute_endpoint
+                    and num_decode > 0):
+                read_bytes = sum(
+                    self.memory.get_kv(req.input) for req in batch_req if not req.is_init
+                )
+                batch.kv_access_latency_ns, batch.kv_access_path = (
+                    self.tiered_memory.additional_kv_read_latency(
+                        self.kv_tier, self.baseline_kv_tier,
+                        self.compute_endpoint, read_bytes, current
+                    )
+                )
             self.inflight.append(batch)
             self.logger.info(
                 "Scheduling new batch #%d to NPU[%d]",

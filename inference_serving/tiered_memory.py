@@ -77,6 +77,9 @@ class TopologyAwareMemory:
             "decode_admission_wait_ns": 0,
             "blocks_transferred": 0,
             "prefetch_ready_blocks": 0,
+            "kv_read_operations": 0,
+            "kv_read_bytes": 0,
+            "kv_read_extra_latency_ns": 0,
         }
         self.link_bytes: Dict[str, int] = {link.contention_group: 0 for link in self.links}
         self.link_busy_ns: Dict[str, int] = {link.contention_group: 0 for link in self.links}
@@ -166,6 +169,34 @@ class TopologyAwareMemory:
         self.stats["transfer_bytes"] += bytes_
         self.stats["transfer_latency_ns"] += current - start_ns
         return current, names
+
+    def additional_kv_read_latency(self, tier: str, baseline_tier: str,
+                                   compute_endpoint: str, bytes_: int,
+                                   start_ns: int) -> Tuple[int, List[str]]:
+        """Charge a decode KV read outside the measured local-HBM profile.
+
+        Layer profiles already include local HBM traffic.  This routine therefore
+        charges only the extra cost of reading from a selected non-local tier and
+        routing it back to the compute endpoint, relative to an uncontended local
+        baseline tier. Link and source-tier contention remain explicit.
+        """
+        if bytes_ <= 0 or tier == baseline_tier:
+            return 0, []
+        if tier not in self.tiers or baseline_tier not in self.tiers:
+            raise KeyError("Unknown KV tier in decode read")
+        tier_done = self._tier_access(tier, bytes_, start_ns)
+        read_done, path = self.transfer(
+            self.tiers[tier].endpoint, compute_endpoint, bytes_, tier_done
+        )
+        baseline = self.tiers[baseline_tier]
+        baseline_ns = baseline.access_latency_ns + (
+            int(bytes_ / baseline.service_bw_gbps) if baseline.service_bw_gbps else 0
+        )
+        extra = max(0, read_done - start_ns - baseline_ns)
+        self.stats["kv_read_operations"] += 1
+        self.stats["kv_read_bytes"] += bytes_
+        self.stats["kv_read_extra_latency_ns"] += extra
+        return extra, path
 
     def plan_kv_handoff(self, source_tier: str, destination_tier: str, total_bytes: int,
                         block_bytes: int, chunk_blocks: int, prefetch_blocks: int,

@@ -28,6 +28,23 @@ class TopologyAwareMemoryTest(unittest.TestCase):
         self.assertEqual(second, 60)
         self.assertGreater(memory.summary()["stats"]["transfer_stall_ns"], 0)
 
+    def test_nonlocal_kv_read_charges_only_extra_cost(self):
+        local = MemoryTier("local_hbm", 8 * 1024 ** 3, 1000, 0, "compute")
+        remote = MemoryTier("cxl_pool", 8 * 1024 ** 3, 100, 5, "pool")
+        memory = TopologyAwareMemory(
+            [local, remote], [FabricLink("pool", "compute", 100, 10, "cxl")]
+        )
+        extra, path = memory.additional_kv_read_latency(
+            "cxl_pool", "local_hbm", "compute", 1_000, 0
+        )
+        self.assertEqual(extra, 34)
+        self.assertEqual(path, ["pool->compute"])
+        self.assertEqual(memory.summary()["stats"]["kv_read_bytes"], 1_000)
+        self.assertEqual(
+            memory.additional_kv_read_latency("local_hbm", "local_hbm", "compute", 1_000, 0),
+            (0, []),
+        )
+
     def test_capacity_reservation(self):
         memory = TopologyAwareMemory([tier("destination", "a", capacity=1)], [])
         memory.reserve("destination", 1024 ** 3)

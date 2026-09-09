@@ -281,6 +281,8 @@ def main():
             tiered_memory=tiered_memory, kv_tier=instance.get("kv_tier"),
             pd_transfer=cluster["tiered_memory_config"]["pd_transfer"],
             pipeline_parallel_degree=instance.get("pipeline_parallel_degree", 1),
+            compute_endpoint=instance.get("compute_endpoint"),
+            baseline_kv_tier=instance.get("baseline_kv_tier"),
         ))
 
     # Controller for astra-sim process communication
@@ -416,7 +418,8 @@ def main():
                                expert_routing_policy, enable_prefix_caching, enable_attn_offloading, power_model, pim_models[node_id], enable_attn_prediction, 
                                enable_sub_batch_interleaving, fp,
                                return_text=(execution_template_mode != 'legacy'),
-                               pipeline_parallel_degree=instance.get("pipeline_parallel_degree", 1))
+                               pipeline_parallel_degree=instance.get("pipeline_parallel_degree", 1),
+                               kv_access_latency_ns=getattr(new_req, "kv_access_latency_ns", 0))
                 payloads = generate_graph(
                     new_req, instance["hardware"], instance["npu_num"], node_id,
                     instance_id, inst2npu_mapping[instance_id],

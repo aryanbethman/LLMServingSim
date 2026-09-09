@@ -154,6 +154,15 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       counts. Any service-throughput claim requires proportionally scaled real
       ShareGPT arrivals/request repetitions and must be labeled separately.
 
+- [x] Add selected-tier decode KV-read accounting. The baseline local-HBM cost
+      remains in measured layer profiles; a non-local tier adds its serialized
+      service plus directed return-fabric cost, relative to that baseline, across
+      existing attention operations. Local behavior remains unchanged.
+- [x] Add local-HBM and switched-CXL P/D smoke configurations and validate them
+      end-to-end with 2 ShareGPT requests. The CXL case completed with 379 KV
+      reads, 6.23 GB read traffic, 95.68 ms aggregate extra remote-read latency,
+      and 6.24 GB CXL-link traffic; its 20.134s simulated makespan exceeds the
+      local-HBM control's 14.844s. These are mechanism tests, not study results.
 - [ ] Specify and test a legacy-to-generic configuration adapter without changing
       legacy run outputs.
 - [ ] Add config validation for tier endpoints, directed routes, contention groups,

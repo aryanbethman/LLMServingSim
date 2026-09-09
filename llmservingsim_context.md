@@ -64,6 +64,17 @@ separate from topology/eviction work:
   an uncertainty band for a calibrated projection, not physical measurement.
   Do not begin ShareGPT-1000/-1500 until requested.
 
+## Current topology-aware tier status
+
+The branch now has an end-to-end P/D tier path for named HBM, host-DRAM, CXL,
+and remote-HBM tiers. It reserves source/destination capacity, routes each KV
+handoff over directed links with contention groups, and emits tier/link metrics.
+Decode attention now adds only the extra selected-tier KV-read service and return
+fabric cost beyond its measured local-HBM baseline. The two-request H100 TP4
+CXL smoke completed with 379 reads, 6.23 GB CXL read traffic, and 95.68 ms
+aggregate added read latency; the matched local-HBM smoke remains unchanged.
+This validates the mechanism, not an externally calibrated CXL system.
+
 ## Project boundary
 
 This is the Marvell/HiPC topology-aware tiered-memory project. It is separate from

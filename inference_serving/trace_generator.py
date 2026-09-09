@@ -67,7 +67,7 @@ def _open_trace_output(target):
 def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0, instance_id=0,
                     max_num_batched_tokens=2048, placement={}, block_mode_on=False, expert_routing_policy="RR",
                     enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None, enable_attn_prediction=False, enable_sub_batch_interleaving=False, fp=16,
-                    return_text=False, pipeline_parallel_degree=1):
+                    return_text=False, pipeline_parallel_degree=1, kv_access_latency_ns=0):
 
     model = batch.model
     config = get_config(model)
@@ -99,13 +99,15 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
     # make trace
     if not enable_sub_batch_interleaving:
         _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, synthesized_trace,
-                        placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
+                        placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp,
+                        kv_access_latency_ns)
     else:
         batches = _make_sub_batch(batch)
         if len(batches) < 2 or len(batches[0].requests) == 0 or len(batches[1].requests) == 0:
             # not enough requests to split, fall back to normal trace generation
             _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, synthesized_trace,
-                        placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
+                        placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp,
+                        kv_access_latency_ns)
         else:
             _synthesize_interleaved_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batches, max_len, synthesized_trace,
                         placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp)
@@ -186,13 +188,15 @@ def generate_trace(batch, hardware, npu_num, npu_group, pd_type=None, node_id=0,
 
 # Generates trace for the batch
 def _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node_id, instance_id, batch, max_len, output_path,
-                     placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp):
+                     placement, block_mode_on, gate, enable_prefix_caching, enable_attn_offloading, power_model, pim_model, enable_attn_prediction, fp,
+                     kv_access_latency_ns=0):
     
     n_embd = config['hidden_size']
     n_head = config['num_attention_heads']
     kv_head = config.get('num_key_value_heads', n_head)
     head_dim = n_embd // n_head
     npus_per_group = npu_num // npu_group
+    kv_access_per_attention_ns = ceil(kv_access_latency_ns / config["num_hidden_layers"])
 
     if not enable_attn_prediction:
         res = _load_attn_perf_db_dict(hardware, model, npus_per_group)
@@ -383,7 +387,10 @@ def _synthesize_trace(hardware, model, config, npu_num, npu_group, pd_type, node
                     else:
                         prefill_attn_latency = 0
 
-                    attn_latency_ns =  prefill_attn_latency + decode_attn_latency
+                    attn_latency_ns = prefill_attn_latency + decode_attn_latency
+                # Local-HBM is already in the profile. This is only the
+                # additional selected-tier service and fabric return cost.
+                attn_latency_ns += kv_access_per_attention_ns
 
                 block_res.append(formatter("attn", str(attn_latency_ns), 'LOCAL', str(attn_input), get_device(placement, layer_num, "attn", "weights"), str(attn_weight), 'LOCAL', str(attn_output), 'NONE', '0', 'NONE'))
 

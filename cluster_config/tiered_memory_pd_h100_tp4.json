@@ -48,7 +48,9 @@
           "npu_num": 4,
           "npu_group": 1,
           "pd_type": "decode",
-          "kv_tier": "decode_hbm"
+          "kv_tier": "decode_hbm",
+          "baseline_kv_tier": "decode_hbm",
+          "compute_endpoint": "decode-tray"
         }
       ]
     }
