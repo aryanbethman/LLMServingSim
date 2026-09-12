@@ -47,8 +47,10 @@ separate from topology/eviction work:
   5.31 req/s, mean/p99 TTFT 388.54/1,118.57 ms, and mean/p99 TPOT
   148.88/263.79 ms. Its persistent result directory is
   /home/marvell/hipc-results/llama405b-h100-tp8-pp2-sharegpt750-nominal-retry1-20260909/
-  (2.3 MB retained). These are calibrated-profile results, not physical
-  405B/H100 measurements.
+  (2.3 MB retained). A separately monitored nominal replay completed in
+  3m51.12s wall-clock, with 3m47.040s simulated time, 275,628 KB
+  Python-parent RSS, and 6,323,644 KB peak process-tree RSS. These are
+  calibrated-profile results, not physical 405B/H100 measurements.
 - Projected attention tables have finite batch/KV grids.  Missing lookup points
   now use a cached interpolation/edge-extrapolation fallback while exact rows
   remain unchanged.  This is required for valid high-concurrency 405B batches

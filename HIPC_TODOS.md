@@ -56,6 +56,9 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       mean/p99 TTFT 388.54/1,118.57 ms, mean/p99 TPOT 148.88/263.79 ms, and
       2.3 MB retained output. Result directory:
       /home/marvell/hipc-results/llama405b-h100-tp8-pp2-sharegpt750-nominal-retry1-20260909/.
+      A separately monitored nominal replay also completed exit 0 in 3m51.12s
+      wall-clock (3m47.040s simulated), with 275,628 KB Python-parent RSS and
+      6,323,644 KB peak process-tree RSS.
 - [x] Add --profile-variant nominal|low|high so uncertainty runs select
       immutable generated profiles, rather than overwriting nominal calibration.
       Profile-cache identity includes the selected variant.
