@@ -168,6 +168,7 @@ scheduler, TP=72 fidelity, or measured NVL72 performance.
       local-HBM control's 14.844s. These are mechanism tests, not study results.
 - [ ] Specify and test a legacy-to-generic configuration adapter without changing
       legacy run outputs.
+- [x] Push the project-required ASTRA managed-readiness fix (ASTRA 76093de) and direct-template Chakra feeder (Chakra 246b16d) to the user forks; update this repository's ASTRA submodule pointer.
 - [ ] Add config validation for tier endpoints, directed routes, contention groups,
       sharing scope, and P/D source/destination tiers.
 - [ ] Test block ownership, reservation/release, source read, destination write,

@@ -6,7 +6,7 @@ This branch is the isolated Marvell/HiPC simulator project.
 
 - Repository: github.com/aryanbethman/LLMServingSim
 - Branch: feature/tiered-memory-topology
-- Baseline at handoff: commit 8b79817
+- Top-level baseline at handoff: current branch HEAD; ASTRA fork commit 76093de; Chakra fork commit 246b16d
 - Scope: scalable, topology-aware, tiered-memory LLM-serving simulation.
 - Out of scope: PriceKV, eviction policy research, and KV-value/data-science work.
 
