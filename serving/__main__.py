@@ -136,6 +136,12 @@ def _pass_response(router, current, state_changed=False):
     if state_changed:
         return "pass -1"
     nxt = router.get_next_pending_arrival()
+    # A decode request whose KV is still arriving over the tier fabric becomes
+    # schedulable at its pd_ready_at, and no report announces that either.
+    ready = [req.pd_ready_at for s in router.decode_schedulers
+             for req in s.running if req.pd_ready_at > current]
+    if ready:
+        nxt = min(ready) if nxt is None else min(nxt, min(ready))
     if nxt is None or nxt <= current:
         return "pass"
     return f"pass {int(nxt)}"
@@ -633,6 +639,14 @@ def main():
     # path is unchanged.
     tiered_memory = TopologyAwareMemory.from_config(cluster.get("tiered_memory_config"))
     if tiered_memory is not None:
+        if any_prefix_caching:
+            # Tier reservations follow each request's own KV, and blocks shared
+            # through the prefix cache have no single owner to charge. The fork
+            # refused the combination too.
+            raise RuntimeError(
+                "memory_tiers cannot be combined with prefix caching yet; "
+                "pass --no-enable-prefix-caching."
+            )
         for instance in instances:
             kv_tier = instance.get("kv_tier")
             if kv_tier is not None and kv_tier not in tiered_memory.tiers:
@@ -678,6 +692,7 @@ def main():
             kv_tier=instance.get("kv_tier"),
             baseline_kv_tier=instance.get("baseline_kv_tier"),
             compute_endpoint=instance.get("compute_endpoint"),
+            pd_transfer=cluster["tiered_memory_config"]["pd_transfer"],
         ))
 
     # The derived KV capacity, not the utilization fraction, is what decides
@@ -855,7 +870,7 @@ def main():
 
         # Add prefill ended requests to decode instance
         if instances[instance_id]["pd_type"] == "prefill" and len(finished_reqs) > 0:
-            router.transfer_prefill_request(finished_reqs)
+            router.transfer_prefill_request(finished_reqs, current)
 
         # An NPU that opened a DP round owes ASTRA-Sim that round's graph, and it
         # has to be handed over before the scheduler may open anything new. vLLM

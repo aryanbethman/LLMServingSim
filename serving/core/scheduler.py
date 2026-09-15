@@ -38,7 +38,7 @@ class Scheduler:
                  long_prefill_token_threshold=0, cxl_mem=0, ep_size=1, kv_cache_dtype='auto',
                  npu_memory_utilization=1.0, reserve_full_isl=True,
                  tiered_memory=None, kv_tier=None, baseline_kv_tier=None,
-                 compute_endpoint=None):
+                 compute_endpoint=None, pd_transfer=None):
         # Topology-aware tier model. None by default, and every use below is
         # guarded, so a cluster config without a `memory_tiers` block behaves
         # exactly as before. See serving/core/tiered_memory.py.
@@ -52,6 +52,11 @@ class Scheduler:
         self.kv_tier = kv_tier
         self.baseline_kv_tier = baseline_kv_tier
         self.compute_endpoint = compute_endpoint
+        # `chunk_blocks` / `prefetch_blocks` for a P/D handoff over the fabric.
+        self.pd_transfer = pd_transfer or {}
+        # This instance's KV lives in a tier: admission reserves it there, and a
+        # P/D handoff moves it over the fabric instead of the network.
+        self.tiered_kv = tiered_memory is not None and kv_tier is not None
         self.model = model
         self.config = get_config(model)
         self.node_id = node_id
@@ -134,7 +139,7 @@ class Scheduler:
         scheduled = []
         preempted = []
 
-        token_budget = self._schedule_running(scheduled, preempted, token_budget)
+        token_budget = self._schedule_running(current, scheduled, preempted, token_budget)
         # vLLM skips the whole waiting phase on any step that preempted
         # (`if not preempted_reqs:`). Without that the running set oscillates
         # preempt -> refill -> preempt.
@@ -145,11 +150,15 @@ class Scheduler:
             return None
         return self._build_batch(current, sys, scheduled)
 
-    def _schedule_running(self, scheduled, preempted, token_budget):
+    def _schedule_running(self, current, scheduled, preempted, token_budget):
         """Phase A: serve requests already running, preempting from the tail."""
         i = 0
         while i < len(self.running) and token_budget > 0:
             req = self.running[i]
+            if req.pd_ready_at > current:
+                # Its KV is still arriving over the tier fabric (add_decode).
+                i += 1
+                continue
             num_new = self._num_new_tokens(req, token_budget)
             if num_new <= 0:
                 # Nothing left to compute for this request yet. vLLM continues
@@ -228,10 +237,14 @@ class Scheduler:
                 # admitting it now only defers a preemption. vLLM breaks here.
                 break
 
+            if not self._reserve_tier_kv(req):
+                # The tier is full. Stop admitting, as for a full block pool.
+                break
             blocks = self.kv.allocate_slots(req, num_new, hit_blocks,
                                             num_npu_hit, num_lower_hit)
             if blocks is None:
                 # vLLM breaks here: a waiting request never causes a preemption.
+                self._release_tier_kv(req)
                 break
 
             self.waiting.pop(0)
@@ -276,6 +289,7 @@ class Scheduler:
         decode state" path -- the tiers are what preserve it.
         """
         self.kv.preempt(req)
+        self._release_tier_kv(req)
         req.status = RequestStatus.PREEMPTED
         req.num_computed_tokens = 0
         req.num_preemptions += 1
@@ -322,7 +336,9 @@ class Scheduler:
                 decode_k_list.append(computed_before)
             if req.is_init:
                 req.set_que_delay(current)
-            if self.pd_type == "prefill":
+            # With a tier model the KV moves over the tier fabric instead
+            # (add_decode); sending it over the network too would bill it twice.
+            if self.pd_type == "prefill" and not self.tiered_kv:
                 # The paired decode instance needs this chunk's KV, plus the KV
                 # of any prefix-cache hit -- it was never computed here, but the
                 # decode side still needs it.
@@ -364,12 +380,13 @@ class Scheduler:
         the fabric hops back to the compute endpoint, minus what local HBM
         would have cost for the same bytes.
 
-        Returns (0, []) whenever no tier model is configured, the KV is
-        local, or the batch has no decodes -- so the legacy path is
-        untouched. Called by `_schedule_new`; see
+        Returns (0, []) whenever no tier model is configured, this is not a
+        P/D decode instance (the fork charged it only there), the KV is local,
+        or the batch has no decodes -- so the legacy path is untouched.
+        Called by `_build_batch`; see
         `TopologyAwareMemory.additional_kv_read_latency`.
         """
-        if (self.tiered_memory is None or self.kv_tier is None
+        if (not self.tiered_kv or self.pd_type != "decode"
                 or self.compute_endpoint is None or not decode_k_list):
             return 0, []
         read_bytes = sum(self.memory.get_kv(k) for k in decode_k_list)
@@ -483,6 +500,7 @@ class Scheduler:
                 if self.enable_prefix_caching:
                     self.kv.cache_blocks(req, req.num_computed_tokens)
                 self.kv.free(req)
+                self._release_tier_kv(req)
                 req.add_latency(finish)
                 self._retire(req)
                 self.done.append(req)
@@ -498,6 +516,30 @@ class Scheduler:
         except ValueError:
             pass
 
+    def _reserve_tier_kv(self, req):
+        """Hold a newly admitted request's KV in this instance's tier.
+
+        Returns False when the tier is full. A no-op without a tier model and
+        for a request that already holds a reservation. Like the fork, it
+        reserves the prompt plus the block this step writes into.
+        """
+        if not self.tiered_kv or req.kv_reserved_bytes:
+            return True
+        num_blocks = req.num_tokens // self.memory.block_size + 1
+        reserve_bytes = self.memory.get_kv(num_blocks * self.memory.block_size)
+        try:
+            self.tiered_memory.reserve(self.kv_tier, reserve_bytes)
+        except RuntimeError:
+            return False
+        req.kv_tier = self.kv_tier
+        req.kv_reserved_bytes = reserve_bytes
+        return True
+
+    def _release_tier_kv(self, req):
+        if req.kv_reserved_bytes:
+            self.tiered_memory.release(req.kv_tier, req.kv_reserved_bytes)
+            req.kv_reserved_bytes = 0
+
     # ==================== queue management ====================
 
     def get_batch_id(self):
@@ -512,13 +554,18 @@ class Scheduler:
         bisect.insort(self.waiting, new_req, key=lambda r: (r.arrival, r.id))
         return
 
-    def add_decode(self, req):
+    def add_decode(self, req, current):
         """Take over a request whose prefill ran on another instance.
 
-        The KV transfer itself is already charged: the prefill instance's trace
-        carries a per-layer send to the paired decode NPU. So this only claims
-        the blocks -- reporting no load bytes, or the transfer would be billed
-        twice.
+        Without a tier model the KV transfer is already charged: the prefill
+        instance's trace carries a per-layer send to the paired decode NPU. So
+        this only claims the blocks -- reporting no load bytes, or the transfer
+        would be billed twice.
+
+        With a tier model the KV moves from the prefill instance's tier to this
+        one over the fabric, `chunk_blocks` at a time, and the request may start
+        decoding once `prefetch_blocks` have arrived (`pd_ready_at`). The
+        prefill instance skipped its network send for this case.
         """
         req.instance_id = self.instance_id
         req.status = RequestStatus.RUNNING
@@ -533,6 +580,18 @@ class Scheduler:
             )
         req.num_computed_tokens = num_computed
         self.kv.take_traffic()          # a P/D handoff is not a recall
+        if self.tiered_kv:
+            plan = self.tiered_memory.plan_kv_handoff(
+                req.kv_tier, self.kv_tier, self.memory.get_total_kv(req),
+                self.memory.get_kv(self.memory.block_size),
+                int(self.pd_transfer.get("chunk_blocks", 1)),
+                int(self.pd_transfer.get("prefetch_blocks", 1)),
+                int(current), precision_bytes=self.memory.kv_fp,
+            )
+            self.tiered_memory.release(req.kv_tier, req.kv_reserved_bytes)
+            req.kv_tier = self.kv_tier
+            req.kv_reserved_bytes = plan.reservation_bytes
+            req.pd_ready_at = plan.ready_at_ns
         self.running.append(req)
 
     def is_request_empty(self):

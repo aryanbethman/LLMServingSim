@@ -60,6 +60,12 @@ class Request:
         self.storage_hit_pool = None
         self.storage_hit_blocks = 0
 
+        # Tier model: the tier holding this request's KV, the bytes reserved
+        # there, and when a P/D handoff has delivered enough KV to decode.
+        self.kv_tier = None
+        self.kv_reserved_bytes = 0
+        self.pd_ready_at = 0
+
         # How many times this request has been preempted.
         self.num_preemptions = 0
         # Prefix-cache stats are recorded once per request per tier.
