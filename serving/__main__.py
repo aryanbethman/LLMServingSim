@@ -20,7 +20,12 @@ from serving.core.utils import *
 from serving.core.controller import *
 from serving.core.memory_model import *
 from serving.core.graph_generator import *
+from serving.core.graph_generator import graph_cache_stats
 from serving.core.trace_generator import *
+from serving.core import trace_generator  # for module-level state setters
+from serving.core.tiered_memory import TopologyAwareMemory
+
+_LAUNCH_CWD = os.getcwd()
 from serving.core.pim_model import *
 from serving.core.config_builder import *
 from serving.core.router import *
@@ -60,6 +65,53 @@ def _pad_batch_to_max(batch, max_len):
     batch.total_len = max_len
     batch.kv_len += pad                  # each dummy contributes kv=1
     batch.num_decode += pad              # counted for lm_head / dense shape
+
+
+def _write_json_report(path, payload, what):
+    """Write one end-of-run JSON report and say where it went.
+
+    Paths are taken as given when absolute, and otherwise resolved against
+    the directory the simulator was launched from -- ASTRA-Sim chdirs into
+    astra-sim/ partway through the run, so a bare relative path would
+    otherwise land somewhere the caller did not expect.
+    """
+    if not os.path.isabs(path):
+        path = os.path.join(_LAUNCH_CWD, path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Saved {what} to: {path}")
+
+
+def _graph_payload(graph, template_mode):
+    """Tag a file-free graph so `_send_workload` picks the right writer.
+
+    Legacy mode returns None from generate_graph and the workload is a
+    path; the other modes return the graph itself, and the tag records
+    which shape it is.
+    """
+    if template_mode == "shared-template":
+        bundle, _stats = graph
+        return ("template-bundle", bundle)
+    return ("et-payloads", graph)
+
+
+def _send_workload(controller, p, workload):
+    """Hand one prepared workload to ASTRA-Sim.
+
+    A legacy workload is a path string ASTRA-Sim opens itself. A file-free
+    one is the graph, tagged by `_graph_payload`, and goes over the pipe.
+    Queued DP workloads travel as either shape, so every dispatch site
+    goes through here rather than calling write_flush directly.
+    """
+    if isinstance(workload, tuple):
+        kind, payload = workload
+        if kind == "template-bundle":
+            controller.write_template_bundle(p, payload)
+        else:
+            controller.write_payloads(p, payload)
+    else:
+        controller.write_flush(p, workload)
 
 
 def _pass_response(router, current, state_changed=False):
@@ -162,6 +214,30 @@ def _iter_raw_instances(cluster_config):
     for node in cluster_config.get("nodes", []):
         for instance in node.get("instances", []):
             yield instance
+
+
+def _startup_guard_error(template_mode, network_backend, cluster_config):
+    """Return a clear preflight error for unsupported graph/backend combinations."""
+    if template_mode == "legacy":
+        return None
+    if network_backend != "analytical":
+        return (
+            f"--execution-template-mode={template_mode} requires "
+            "--network-backend=analytical; in-memory graph transport is not "
+            "supported by the ns3 backend"
+        )
+    dp_instances = [
+        instance.get("instance_id", index)
+        for index, instance in enumerate(_iter_raw_instances(cluster_config))
+        if instance.get("dp_group") is not None
+    ]
+    if dp_instances:
+        return (
+            f"--execution-template-mode={template_mode} does not support "
+            f"explicit dp_group (instances: {dp_instances}); use "
+            "--execution-template-mode=legacy"
+        )
+    return None
 
 
 def _resolve_instance_dtype(instance, cli_dtype, dtype_to_bits):
@@ -277,6 +353,33 @@ def main():
                         help='model weight data type (vLLM-style). When omitted, defaults to the model config\'s '
                         '``torch_dtype`` (falling back to bfloat16). Overrides only take effect if the profiler '
                         'produced matching data under perf/<hw>/<model>/<variant>/tp<N>/')
+    parser.add_argument('--tier-stats-output', type=str, default=None,
+                        help='write tier/fabric metrics (per-tier occupancy, link bytes and '
+                        'busy time, non-local KV read cost) to this JSON path. Only produces '
+                        'a file when the cluster config declares memory_tiers')
+    parser.add_argument('--execution-template-stats-output', type=str, default=None,
+                        help='write aggregate execution-template transport metrics to this '
+                        'JSON path: bundles sent, wire bytes, templates defined vs deduplicated, '
+                        'and the template cache ASTRA-Sim reports back')
+    parser.add_argument('--execution-template-mode',
+                        choices=['legacy', 'in-memory', 'shared-template'], default='legacy',
+                        help='how execution graphs reach ASTRA-Sim: legacy writes one llm.<npu>.et '
+                        'per rank under inputs/workload (default); in-memory hands the converted '
+                        'payloads straight over the pipe; shared-template additionally splits the '
+                        'structure every rank shares from each rank\'s deltas, so the per-batch '
+                        'cost stops scaling with NPU count')
+    parser.add_argument('--compact-controller-protocol', action='store_true',
+                        help='have ASTRA-Sim emit one-line READY/COMPLETE records instead of its '
+                        'multi-line human-readable report. Cuts frontend parsing on long runs')
+    parser.add_argument('--template-cache-max-entries', type=int, default=0,
+                        help='bound the structural templates ASTRA-Sim keeps live '
+                        '(0 = unbounded). Only meaningful with '
+                        '--execution-template-mode=shared-template')
+    parser.add_argument('--profile-variant', type=str, default=None,
+                        help='pin profile lookups to perf/<hw>/<model>/<VARIANT>/ instead of '
+                        'deriving the folder from dtype. Use it to select an uncertainty arm of '
+                        'a calibrated projection (e.g. bf16-low / bf16-high) without overwriting '
+                        'the nominal bundle')
     parser.add_argument('--request-routing-policy', type=str, choices=['LOAD', 'RR', 'RAND', 'CUSTOM'], default='LOAD',
                         help='request routing policy across instances: LOAD (vLLM-style weighted least-loaded, default), '
                         'RR (round-robin), RAND (random), CUSTOM (user-defined)')
@@ -373,6 +476,21 @@ def main():
                         help='network simulation backend: analytical (fast, default) or ns3 (detailed, WIP)')
 
     args = parser.parse_args()
+
+    # Reject combinations known to hang before building configs or launching ASTRA-Sim.
+    raw_cluster_config = _load_cluster_config_for_overrides(args.cluster_config)
+    startup_error = _startup_guard_error(
+        args.execution_template_mode, args.network_backend, raw_cluster_config)
+    if startup_error:
+        parser.error(startup_error)
+
+    # Pinned before any trace is generated, so no lookup can race it.
+    if args.profile_variant:
+        trace_generator.set_profile_variant_override(args.profile_variant)
+
+    if args.template_cache_max_entries and args.execution_template_mode != 'shared-template':
+        parser.error('--template-cache-max-entries requires '
+                     '--execution-template-mode=shared-template')
     
     args.run_id = resolve_run_id(args.run_id)
     run_paths = build_run_paths(astra_sim, args.run_id, args.inputs_root)
@@ -396,7 +514,6 @@ def main():
     num_req=args.num_reqs
     log_interval=args.log_interval
     network_backend = args.network_backend
-    raw_cluster_config = _load_cluster_config_for_overrides(args.cluster_config)
     raw_instances = list(_iter_raw_instances(raw_cluster_config))
     build_enable_local_offloading = args.enable_local_offloading or any(
         inst.get("enable_local_offloading", False) for inst in raw_instances)
@@ -511,6 +628,23 @@ def main():
         else:
             raise NotImplementedError(f"Prefix storage type {prefix_storage} is not supported or memory size is invalid")
 
+    # Topology-aware tier model, or None when the cluster config declares no
+    # memory_tiers. Every downstream use is guarded on None, so the default
+    # path is unchanged.
+    tiered_memory = TopologyAwareMemory.from_config(cluster.get("tiered_memory_config"))
+    if tiered_memory is not None:
+        for instance in instances:
+            kv_tier = instance.get("kv_tier")
+            if kv_tier is not None and kv_tier not in tiered_memory.tiers:
+                raise RuntimeError(
+                    f"Instance KV tier {kv_tier!r} is not declared in memory_tiers."
+                )
+            if instance["pd_type"] in ("prefill", "decode") and kv_tier is None:
+                raise RuntimeError(
+                    "Every prefill/decode instance needs a kv_tier when "
+                    "memory_tiers are configured."
+                )
+
     schedulers = []
     for instance_id, instance in enumerate(instances):
         prefix_pool_index = prefix_pool_inst_mapping[instance_id]
@@ -540,6 +674,10 @@ def main():
             kv_cache_dtype=inst_cfg["kv_cache_dtype"],
             npu_memory_utilization=inst_cfg["npu_memory_utilization"],
             reserve_full_isl=inst_cfg["reserve_full_isl"],
+            tiered_memory=tiered_memory,
+            kv_tier=instance.get("kv_tier"),
+            baseline_kv_tier=instance.get("baseline_kv_tier"),
+            compute_endpoint=instance.get("compute_endpoint"),
         ))
 
     # The derived KV capacity, not the utilization fraction, is what decides
@@ -627,6 +765,10 @@ def main():
         astra_args.append("--end-npu-ids="+end_npu_ids)
     if network_backend == 'ns3':
         astra_args.append("--logical-topology-configuration="+astra_sim+"/inputs/logical_topology/logical_8nodes_1D.json")
+    if args.compact_controller_protocol:
+        astra_args.append("--compact-controller-protocol")
+    if args.template_cache_max_entries:
+        astra_args.append("--template-cache-max-entries=" + str(args.template_cache_max_entries))
     p = subprocess.Popen(astra_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
     # DP group synchronization: defer trace generation until all members have scheduled
@@ -661,8 +803,15 @@ def main():
     # Starting simulation, one while loop processes one iteration
     while True:
         
-        out = controller.read_wait(p)
-        out_dict = controller.parse_output(out[-2])
+        if args.compact_controller_protocol:
+            # ASTRA-Sim emits one parseable READY line per completion, so
+            # read until one arrives instead of scanning for the prose
+            # "Waiting" prompt. Template bookkeeping lines are consumed
+            # inside read_completion.
+            out_dict = controller.read_completion(p)
+        else:
+            out = controller.read_wait(p)
+            out_dict = controller.parse_output(out[-2])
         
         if out_dict != None:
             sys = out_dict['sys']
@@ -726,7 +875,7 @@ def main():
 
         # Hand over a workload pre-generated by a DP round this NPU opened.
         if pending:
-            controller.write_flush(p, pending.popleft())
+            _send_workload(controller, p, pending.popleft())
             if not pending:
                 del dp_ready_workloads[sys]
             responded = True
@@ -814,29 +963,36 @@ def main():
                                        dp_sum_total_len=sum_total_len,
                                        enable_block_copy=inst_cfg["enable_block_copy"],
                                        inputs_root=run_paths.inputs_root)
-                        generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
-                                       inst_id, inst2npu_mapping[inst_id],
-                                       inst_cfg["enable_local_offloading"],
-                                       workload_name=dp_workload_name,
-                                       inputs_root=run_paths.inputs_root,
-                                       save_trace_text=args.save_trace_text,
-                                       trace=trace_data)
+                        graph = generate_graph(
+                            batch, inst["hardware"], inst["num_npus"], nid,
+                            inst_id, inst2npu_mapping[inst_id],
+                            inst_cfg["enable_local_offloading"],
+                            workload_name=dp_workload_name,
+                            inputs_root=run_paths.inputs_root,
+                            save_trace_text=args.save_trace_text,
+                            template_mode=args.execution_template_mode,
+                            known_template_ids=controller.sent_template_ids,
+                            trace=trace_data)
                         # ``fired[0]`` is the NPU that opened this member's
                         # round -- the one that owes ASTRA-Sim its graph. That is
                         # normally this very poll, and then it is answered
                         # directly. With pp_size > 1 the round can instead pop a
                         # batch that another NPU of the instance opened, or an
                         # older one this NPU opened, so queue it for that NPU.
-                        ready = get_workload(batch, inst["hardware"], inst_id,
-                                             workload_name=dp_workload_name,
-                                             inputs_root=run_paths.inputs_root)
+                        if args.execution_template_mode == "legacy":
+                            ready = get_workload(batch, inst["hardware"], inst_id,
+                                                 workload_name=dp_workload_name,
+                                                 inputs_root=run_paths.inputs_root)
+                        else:
+                            ready = _graph_payload(graph, args.execution_template_mode)
+                            batch.graph_payload = ready
                         if batch.fired[0] == sys:
                             own_workload = ready
                         else:
                             dp_ready_workloads[batch.fired[0]].append(ready)
 
                     if own_workload is not None:
-                        controller.write_flush(p, own_workload)
+                        _send_workload(controller, p, own_workload)
                     else:
                         controller.write_flush(p, _pass_response(router, current, state_changed=True))
                     responded = True
@@ -902,13 +1058,16 @@ def main():
                                            dp_sum_total_len=sum_total_len,
                                            enable_block_copy=inst_cfg["enable_block_copy"],
                                            inputs_root=run_paths.inputs_root)
-                            generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
-                                           inst_id, inst2npu_mapping[inst_id],
-                                           inst_cfg["enable_local_offloading"],
-                                           workload_name=dp_workload_name,
-                                           inputs_root=run_paths.inputs_root,
-                                           save_trace_text=args.save_trace_text,
-                                           trace=trace_data)
+                            graph = generate_graph(
+                                batch, inst["hardware"], inst["num_npus"], nid,
+                                inst_id, inst2npu_mapping[inst_id],
+                                inst_cfg["enable_local_offloading"],
+                                workload_name=dp_workload_name,
+                                inputs_root=run_paths.inputs_root,
+                                save_trace_text=args.save_trace_text,
+                                template_mode=args.execution_template_mode,
+                                known_template_ids=controller.sent_template_ids,
+                                trace=trace_data)
                             # See the twin block above: the NPU that opened a
                             # member's round owes its graph, and that is normally
                             # this poll.
@@ -921,7 +1080,7 @@ def main():
                                 dp_ready_workloads[batch.fired[0]].append(ready)
 
                         if own_workload is not None:
-                            controller.write_flush(p, own_workload)
+                            _send_workload(controller, p, own_workload)
                         else:
                             controller.write_flush(p, _pass_response(router, current, state_changed=True))
                         responded = True
@@ -945,15 +1104,22 @@ def main():
                                    tp_dim=instance["tp_dim"], ep_dim=instance["ep_dim"],
                                    enable_block_copy=inst_cfg["enable_block_copy"],
                                    inputs_root=run_paths.inputs_root)
-                    generate_graph(new_req, instance["hardware"], instance["num_npus"], node_id,
-                                   instance_id, inst2npu_mapping[instance_id],
-                                   inst_cfg["enable_local_offloading"],
-                                   inputs_root=run_paths.inputs_root,
-                                   save_trace_text=args.save_trace_text,
-                                   trace=trace_data)
-                    workload = get_workload(new_req, instance["hardware"], instance_id,
-                                            inputs_root=run_paths.inputs_root)
-                    controller.write_flush(p, workload)
+                    graph = generate_graph(
+                        new_req, instance["hardware"], instance["num_npus"], node_id,
+                        instance_id, inst2npu_mapping[instance_id],
+                        inst_cfg["enable_local_offloading"],
+                        inputs_root=run_paths.inputs_root,
+                        save_trace_text=args.save_trace_text,
+                        template_mode=args.execution_template_mode,
+                        known_template_ids=controller.sent_template_ids,
+                        trace=trace_data)
+                    if args.execution_template_mode == "legacy":
+                        workload = get_workload(new_req, instance["hardware"], instance_id,
+                                                inputs_root=run_paths.inputs_root)
+                    else:
+                        workload = _graph_payload(graph, args.execution_template_mode)
+                        new_req.graph_payload = workload
+                    _send_workload(controller, p, workload)
             else:
                 # Joined an existing batch: pick up its workload. workload_name
                 # matters for a DP batch, whose graph lives in the group's shared
@@ -976,6 +1142,13 @@ def main():
                     new_req.fired.remove(sys)
                     controller.write_flush(p, _pass_response(router, current, state_changed=True))
                     responded = True
+                elif new_req.graph_payload is not None:
+                    # File-free mode: this batch's graph went over the pipe,
+                    # so there is no directory to point this NPU at. Re-send
+                    # the payload it was built with -- in shared-template
+                    # mode the controller has already cached the structure,
+                    # so the repeat costs only this rank's bindings.
+                    _send_workload(controller, p, new_req.graph_payload)
                 else:
                     workload = get_workload(new_req, instances[instance_id]["hardware"], instance_id,
                                             workload_name=new_req.workload_name,
@@ -1165,7 +1338,7 @@ def main():
     minutes, seconds = divmod(remainder, 60)
 
     # check all scheduled requests in astra-sim are well done
-    controller.check_end(p)
+    controller.check_end(p, compact_protocol=args.compact_controller_protocol)
 
     # calcuate prefix caching metrics
     total_requested_tokens = 0
@@ -1256,6 +1429,18 @@ def main():
         print(f"Saving each request's information to output file: {output_file}")
         for i in range(num_instances):
             schedulers[i].save_output(output_file, is_append=False if i == 0 else True)
+
+    if args.tier_stats_output is not None and tiered_memory is not None:
+        _write_json_report(args.tier_stats_output,
+                           tiered_memory.summary(simulation_end_ns=current),
+                           "tier/fabric metrics")
+
+    if args.execution_template_stats_output is not None:
+        stats = controller.get_template_transport_stats()
+        stats["mode"] = args.execution_template_mode
+        stats["graph_cache"] = graph_cache_stats()
+        _write_json_report(args.execution_template_stats_output, stats,
+                           "execution-template transport metrics")
 
     # --save-trace-text writes the text into the run directory, so keeping it
     # is implied: producing the text and then deleting it would be pointless.

@@ -36,7 +36,22 @@ class Scheduler:
                  enable_prefix_caching, enable_prefix_sharing, prefix_pool, prefix_storage,
                  enable_chunked_prefill=False,
                  long_prefill_token_threshold=0, cxl_mem=0, ep_size=1, kv_cache_dtype='auto',
-                 npu_memory_utilization=1.0, reserve_full_isl=True):
+                 npu_memory_utilization=1.0, reserve_full_isl=True,
+                 tiered_memory=None, kv_tier=None, baseline_kv_tier=None,
+                 compute_endpoint=None):
+        # Topology-aware tier model. None by default, and every use below is
+        # guarded, so a cluster config without a `memory_tiers` block behaves
+        # exactly as before. See serving/core/tiered_memory.py.
+        #
+        # The block manager owns capacity; this owns what reaching a tier
+        # costs. `kv_tier` is where this instance's KV actually lives,
+        # `baseline_kv_tier` is the tier the profiled attention latency
+        # already includes (local HBM), and `compute_endpoint` is where this
+        # instance's NPUs sit in the fabric.
+        self.tiered_memory = tiered_memory
+        self.kv_tier = kv_tier
+        self.baseline_kv_tier = baseline_kv_tier
+        self.compute_endpoint = compute_endpoint
         self.model = model
         self.config = get_config(model)
         self.node_id = node_id
@@ -330,12 +345,40 @@ class Scheduler:
         batch.fired.append(sys)
         batch.requests.extend(req for req, _, _ in scheduled)
         batch.scheduled_tokens = scheduled_tokens
+        batch.kv_access_latency_ns, batch.kv_access_path = self._nonlocal_kv_read_cost(
+            decode_k_list, current,
+        )
         # Written down to a victim tier off the critical path, so it carries no
         # latency -- but the bytes still cost DRAM energy.
         batch.write_through = write_through_bytes
         self.inflight.append(batch)
         self.logger.info("Scheduling new batch #%d to NPU[%d]", batch.batch_id, sys)
         return batch
+
+    def _nonlocal_kv_read_cost(self, decode_k_list, current):
+        """Extra latency a decode pays when its KV is not in local HBM.
+
+        The profiled attention latency already contains a local-HBM read,
+        so charging the whole tier access again would double-count it. This
+        returns only the difference: the selected tier's service time plus
+        the fabric hops back to the compute endpoint, minus what local HBM
+        would have cost for the same bytes.
+
+        Returns (0, []) whenever no tier model is configured, the KV is
+        local, or the batch has no decodes -- so the legacy path is
+        untouched. Called by `_schedule_new`; see
+        `TopologyAwareMemory.additional_kv_read_latency`.
+        """
+        if (self.tiered_memory is None or self.kv_tier is None
+                or self.compute_endpoint is None or not decode_k_list):
+            return 0, []
+        read_bytes = sum(self.memory.get_kv(k) for k in decode_k_list)
+        if read_bytes <= 0:
+            return 0, []
+        return self.tiered_memory.additional_kv_read_latency(
+            self.kv_tier, self.baseline_kv_tier, self.compute_endpoint,
+            read_bytes, current,
+        )
 
     def _schedule_existing(self, sys, batch_id):
         """Hand an already-formed batch to the next NPU of the instance."""

@@ -11,6 +11,8 @@ from .pim_model import PIMModel
 from .logger import get_logger
 from .run_paths import input_path
 import bisect
+import csv
+import math
 from dataclasses import dataclass, field
 
 # ----------------------------------------------------------------------
@@ -48,10 +50,41 @@ def _short_dtype(d):
     return _DTYPE_SHORT.get(str(d), str(d))
 
 
+# Set once at startup by ``--profile-variant`` and never reassigned
+# during a run. Uncertainty bundles (a calibrated projection's low /
+# nominal / high arms) live in sibling variant folders that dtype alone
+# cannot name, and picking between them per-batch would silently mix two
+# different profiles into one result -- so the selection is process-wide
+# and immutable.
+_PROFILE_VARIANT_OVERRIDE = None
+
+
+def set_profile_variant_override(name):
+    """Pin every profile lookup to one variant folder.
+
+    Called once by ``serving/__main__.py`` when ``--profile-variant`` is
+    given; read by `resolve_variant`. Raises on a second, conflicting
+    call rather than letting a run straddle two bundles.
+    """
+    global _PROFILE_VARIANT_OVERRIDE
+    if (_PROFILE_VARIANT_OVERRIDE is not None
+            and name != _PROFILE_VARIANT_OVERRIDE):
+        raise RuntimeError(
+            f"profile variant already pinned to {_PROFILE_VARIANT_OVERRIDE!r}; "
+            f"refusing to switch to {name!r} mid-run"
+        )
+    _PROFILE_VARIANT_OVERRIDE = name
+
+
 def resolve_variant(dtype, kv_cache_dtype, model_config=None):
     """Compute the profiler's variant folder name from runtime dtype
     choices. Matches ``ProfileArgs.effective_variant`` in the profiler.
+
+    An explicit ``--profile-variant`` wins over the dtype derivation;
+    see `set_profile_variant_override`.
     """
+    if _PROFILE_VARIANT_OVERRIDE is not None:
+        return _PROFILE_VARIANT_OVERRIDE
     weight = dtype
     if not weight and model_config is not None:
         weight = model_config.get("torch_dtype")
@@ -127,6 +160,7 @@ class BatchCtx:
     lm_head_len: int    # number of sequences
     decode_lens: list   # per-PIM-channel decode lengths (None if no PIM)
     channel_split: int  # PIM channel split factor
+    kv_access_per_attention_ns: int  # non-local KV read cost per attention node (0 when KV is local)
 
 
 @dataclass
@@ -824,12 +858,78 @@ def _lookup_attention_with_skew(
     return max(1, int(round(t_mean + alpha * (t_max - t_mean))))
 
 
+def _uses_v0_attention(perf_db):
+    return ((perf_db.get("meta") or {}).get("v0_export") or {}).get(
+        "attention_lookup") == "v0-additive"
+
+
+def _load_v0_attention_surface(path, axis0, axis1):
+    """Build an immutable, complete source surface once, not a 4D product."""
+    rows = {}
+    with open(path, newline="") as source:
+        for row in csv.DictReader(source):
+            x, y = int(row[axis0]), int(row[axis1])
+            rows.setdefault(x, {}).setdefault(y, int(row["latency_ns"]))
+    if not rows:
+        raise ValueError(f"Empty v0 attention surface: {path}")
+    xs = sorted(rows)
+    grid = sorted(rows[xs[0]])
+    if any(sorted(rows[x]) != grid for x in xs):
+        raise ValueError(f"Incomplete v0 attention surface: {path}")
+    return {"xs": xs, "ys": grid, "rows": rows}
+
+
+def _v0_surface_lookup(surface, x, y):
+    """Exact source samples, bilinear interior, nearest-edge extrapolation.
+
+    Match the old finite-grid fallback without caching synthesized samples
+    back into the source surface (which would change subsequent estimates).
+    """
+    rows, xs, ys = surface["rows"], surface["xs"], surface["ys"]
+    if x in rows and y in rows[x]:
+        return rows[x][y]
+
+    def bracket(axis, query):
+        if len(axis) == 1:
+            return axis[0], axis[0], 0.0
+        hi = min(max(bisect.bisect_left(axis, query), 1), len(axis) - 1)
+        lo = hi - 1
+        return axis[lo], axis[hi], (query - axis[lo]) / (axis[hi] - axis[lo])
+
+    x0, x1, tx = bracket(xs, x)
+    y0, y1, ty = bracket(ys, y)
+    v0 = rows[x0][y0] + ty * (rows[x0][y1] - rows[x0][y0])
+    v1 = rows[x1][y0] + ty * (rows[x1][y1] - rows[x1][y0])
+    return max(1, int(round(v0 + tx * (v1 - v0))))
+
+
+def _lookup_v0_attention(perf_db, tp, pc, kp, nd, kd):
+    cache = perf_db.setdefault("v0_attention_tables", {})
+    if tp not in cache:
+        root = os.path.join(perf_db["root"], f"tp{tp}")
+        cache[tp] = (
+            _load_v0_attention_surface(os.path.join(root, "attention_prefill_v0.csv"),
+                                       "kv_cache_size", "prefill_chunk_size"),
+            _load_v0_attention_surface(os.path.join(root, "attention_decode_v0.csv"),
+                                       "batch_size", "kv_cache_size"),
+        )
+    prefill, decode = cache[tp]
+    pc = ((max(int(pc), 0) + 31) // 32) * 32
+    kp = ((max(int(kp), 0) + 63) // 64) * 64
+    kd = ((max(int(kd), 0) + 63) // 64) * 64
+    return max(1, (_v0_surface_lookup(prefill, kp, pc) if pc else 0)
+               + (_v0_surface_lookup(decode, max(int(nd), 0), kd) if nd > 0 else 0))
+
+
 def _lookup_attention(perf_db, tp, prefill_chunk, kv_prefill, n_decode, kv_decode):
     """4D log-linear interpolation on (prefill_chunk, kv_prefill,
     n_decode, kv_decode). Every axis is doubled by the profiler, so we
     bracket each axis's two nearest profiled values and blend linearly
     in log-space.
     """
+    if _uses_v0_attention(perf_db):
+        return _lookup_v0_attention(perf_db, tp, prefill_chunk, kv_prefill,
+                                    n_decode, kv_decode)
     tbl = _tp_tables(perf_db, tp).get("attention")
     if tbl is None or not tbl["pc_nd_pairs"]:
         raise KeyError(f"Missing attention profile for tp={tp}.")
@@ -970,9 +1070,18 @@ def _build_batch_ctx(batch, ctx):
         kv_decode_min = 0
         total_len = max(1, total_len)  # preserve for size calcs
 
+    # The scheduler prices a non-local KV read once for the whole batch;
+    # the trace charges it on the attention nodes that do the reading, so
+    # spread it over the transformer blocks. 0 whenever KV is local, which
+    # is every configuration without a `memory_tiers` block.
+    kv_access_total_ns = batch.kv_access_latency_ns
+    num_blocks = max(int(ctx.config.get("num_hidden_layers", 1)), 1)
+    kv_access_per_attention_ns = -(-kv_access_total_ns // num_blocks)
+
     return BatchCtx(batch, total_len, prefill_chunk, kv_prefill, n_decode,
                     kv_decode_mean, kv_decode_max, kv_decode_min,
-                    lm_head_len, decode_lens, channel_split)
+                    lm_head_len, decode_lens, channel_split,
+                    kv_access_per_attention_ns)
 
 
 # ======================================================================
@@ -990,6 +1099,21 @@ def _layer_category(perf_db, layer_name):
     return None
 
 
+def _batch_attention_latency(ctx, bctx):
+    if _uses_v0_attention(ctx.perf_db):
+        # v0 used the L2 norm of all query lengths when prefill is present,
+        # including one-token decode queries, not the prefill token sum.
+        # Keep timing keys separate from the new memory/communication sizes.
+        pc = (round(math.sqrt(sum(q * q for q in bctx.batch.q_list)))
+              if bctx.prefill_chunk > 0 else 0)
+        return _lookup_attention(ctx.perf_db, ctx.tp_size, pc, bctx.kv_prefill,
+                                 bctx.n_decode, bctx.kv_decode_mean)
+    return _lookup_attention_with_skew(
+        ctx.perf_db, ctx.tp_size, bctx.prefill_chunk, bctx.kv_prefill,
+        bctx.n_decode, bctx.kv_decode_mean, bctx.kv_decode_max,
+        bctx.kv_decode_min)
+
+
 def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer_num=None,
                 comm_type='NONE', comm_size=0, input_loc='LOCAL', output_loc='LOCAL'):
     """Emit a single trace layer: lookup latency, compute sizes, format, track power."""
@@ -1004,12 +1128,12 @@ def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer
     if category == "per_sequence":
         latency_ns = _lookup_per_sequence(ctx.perf_db, layer_name, ctx.tp_size, bctx.lm_head_len)
     elif category == "attention":
-        latency_ns = _lookup_attention_with_skew(
-            ctx.perf_db, ctx.tp_size,
-            bctx.prefill_chunk, bctx.kv_prefill,
-            bctx.n_decode, bctx.kv_decode_mean, bctx.kv_decode_max,
-            bctx.kv_decode_min,
-        )
+        latency_ns = _batch_attention_latency(ctx, bctx)
+        # The profiled number already contains a local-HBM read. When this
+        # instance's KV lives somewhere else, the scheduler works out the
+        # extra cost for the whole batch and it is charged here, spread over
+        # the blocks that actually do the reading. 0 whenever KV is local.
+        latency_ns += bctx.kv_access_per_attention_ns
     else:  # dense
         latency_ns = _lookup_dense(ctx.perf_db, layer_name, ctx.tp_size, bctx.total_len)
 
@@ -1325,12 +1449,7 @@ def _layer_latency_for_power(ctx, bctx, layer_name):
     if category == "per_sequence":
         return _lookup_per_sequence(ctx.perf_db, layer_name, ctx.tp_size, bctx.lm_head_len)
     if category == "attention":
-        return _lookup_attention_with_skew(
-            ctx.perf_db, ctx.tp_size,
-            bctx.prefill_chunk, bctx.kv_prefill,
-            bctx.n_decode, bctx.kv_decode_mean, bctx.kv_decode_max,
-            bctx.kv_decode_min,
-        )
+        return _batch_attention_latency(ctx, bctx)
     return _lookup_dense(ctx.perf_db, layer_name, ctx.tp_size, bctx.total_len)
 
 

@@ -135,11 +135,33 @@ def _get_llm_converter():
     return _LLMConverter
 
 
-def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False, workload_name=None, inputs_root=None, save_trace_text=False, *, trace):
+def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offset=0, enable_local_offloading=False, event=False, workload_name=None, inputs_root=None, save_trace_text=False, template_mode='legacy', known_template_ids=None, *, trace):
 
     cwd = os.getcwd()
     if inputs_root is None:
         inputs_root = os.path.join(cwd, "inputs")
+
+    # File-free modes hand the graph straight to ASTRA-Sim over the pipe.
+    # They return the payload instead of writing llm.<npu>.et per rank,
+    # so none of the directory, cache or trace-text handling below runs.
+    #
+    # This is a different axis from the _ET_CACHE: that reuses one whole
+    # conversion when a later batch repeats a trace, while these split the
+    # structure every rank shares from the little each rank differs by. The
+    # cache saves across time, templates save across ranks, and at 512 NPUs
+    # it is the per-rank writes that dominate.
+    if template_mode != "legacy":
+        converter = _get_llm_converter()(
+            None, None, num_npus, npu_offset, enable_local_offloading,
+        )
+        if template_mode == "shared-template":
+            return converter.convert_rows_to_template_bundle(
+                trace.header_line, indexed_cols(trace.rows),
+                known_template_ids=known_template_ids,
+            )
+        return converter.convert_rows_to_payloads(
+            trace.header_line, indexed_cols(trace.rows),
+        )
 
     if event:
         file_name = 'event_handler'

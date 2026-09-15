@@ -685,6 +685,20 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
         json.dump(memory_config, f, ensure_ascii=False, indent=2)
     _validate_memory_config(memory_config_path, placement, enable_local_offloading)
 
+    # Optional topology-aware tier model. Absent from a cluster config by
+    # default, in which case every field is empty and the simulator behaves
+    # exactly as before. Consumed by serving/core/tiered_memory.py.
+    #
+    # This sits alongside the per-instance `placement` block rather than
+    # replacing it: placement says which device holds a tensor, this says
+    # what reaching that device costs -- capacity, service bandwidth, and
+    # the fabric hops between endpoints.
+    tiered_memory_config = {
+        "memory_tiers": cluster_config.get("memory_tiers", []),
+        "fabric": cluster_config.get("fabric", {}),
+        "pd_transfer": cluster_config.get("pd_transfer", {}),
+    }
+
     cluster = {
         "num_nodes": num_nodes,
         "num_instances": total_num_instances,
@@ -710,6 +724,7 @@ def build_cluster_config(astra_sim, cluster_config_path, enable_local_offloading
         "network_config_path": network_config_path,
         "system_config_path": system_config_path,
         "memory_config_path": memory_config_path,
+        "tiered_memory_config": tiered_memory_config,
     }
     # print("Current cluster : {}".format(cluster))
                 

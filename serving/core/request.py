@@ -123,6 +123,17 @@ class Batch:
         self.kv_len = kv_len
         self.batch_time = batch_time
         self.fired = [] # systems that fired this batch
+        # In the file-free execution-template modes the graph travels over
+        # the pipe instead of being written to inputs/workload, so there is
+        # no path for a later NPU joining this batch to be pointed at. Hold
+        # it here: its lifetime is exactly the batch's, so it is released
+        # when the scheduler drops the batch from `inflight`.
+        self.graph_payload = None
+        # Extra latency this batch's decodes pay for reading KV from a
+        # non-local tier, and the fabric path it took. Set by the scheduler
+        # only when a tier model is configured; 0 otherwise.
+        self.kv_access_latency_ns = 0
+        self.kv_access_path = []
         self.requests = []
         self.end = []
         # vllm

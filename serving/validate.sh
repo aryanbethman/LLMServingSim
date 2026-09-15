@@ -52,6 +52,14 @@ TIMEOUT="${TIMEOUT:-1800}"
 
 COMMON=(--dtype bfloat16 --block-size 16 --log-level WARNING)
 
+# Extra flags appended to every scenario, e.g.
+#   EXTRA_ARGS="--execution-template-mode shared-template" ./serving/validate.sh --clocks-only
+# The baselines are mode-independent by construction -- a flag that only
+# changes how the graph reaches ASTRA-Sim must not move a single clock --
+# so this turns the whole suite into an equivalence check for such a flag.
+read -r -a EXTRA <<< "${EXTRA_ARGS:-}"
+COMMON+=("${EXTRA[@]}")
+
 C=configs/cluster
 TRACE=workloads/example_trace.jsonl
 MIXED=workloads/workload_me2_01_mixed.jsonl
