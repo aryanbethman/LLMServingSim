@@ -52,7 +52,6 @@ from profiler.core.config import (
     read_model_config,
     resolve_architecture_by_model_type,
 )
-from profiler.core.runner import run_full, run_slice
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +380,49 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(p_slice)
 
+    # ---- export-v0 ----
+    #
+    # No GPU and no vLLM: this reads a legacy bundle off disk and
+    # rewrites it in the current layout. See profiler/v0/export.py for
+    # the operator mapping and what the conversion cannot recover.
+    p_export = sub.add_parser(
+        "export-v0",
+        help="Convert a legacy v0 profile bundle to the current format.",
+    )
+    p_export.add_argument(
+        "model",
+        help="HF model id (e.g. meta-llama/Llama-3.1-70B). Must match a "
+             "config file under configs/model/.",
+    )
+    p_export.add_argument(
+        "--from", dest="src_dir", required=True,
+        help="v0 bundle directory (the one holding layers.csv and "
+             "predictions/).",
+    )
+    p_export.add_argument("--hardware", required=True,
+                          help="Hardware identifier, e.g. H100.")
+    p_export.add_argument("--tp", type=int, required=True,
+                          help="TP degree this bundle was profiled at.")
+    p_export.add_argument("--variant", default="bf16",
+                          help="Output folder label (default: bf16).")
+    p_export.add_argument("--sampler-us", type=float, default=0.0,
+                          dest="sampler_us",
+                          help="Per-sequence sampler latency to assert, in "
+                               "microseconds. v0 never measured it; the "
+                               "default 0.0 records that rather than "
+                               "inventing a number.")
+    p_export.add_argument("--out-root", type=Path, default=PERF_DIR,
+                          dest="out_root",
+                          help=f"Output root (default: {PERF_DIR}).")
+    p_export.add_argument("--model-config-root", type=Path,
+                          default=MODEL_CONFIG_DIR, dest="model_config_root",
+                          help="Directory holding HF configs.")
+    p_export.add_argument(
+        "--log-level", default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log verbosity (default: INFO).",
+    )
+
     return p
 
 
@@ -407,6 +449,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.debug("Model config fields: %s", sorted(model_config.keys()))
 
+    # export-v0 stops here: no engine, no GPU, no vLLM import.
+    if ns.cmd == "export-v0":
+        from profiler.v0.export import convert_bundle
+
+        variant_root, counts = convert_bundle(
+            src_dir=ns.src_dir,
+            out_root=str(ns.out_root),
+            hardware=ns.hardware,
+            model=hf_id,
+            variant=ns.variant,
+            tp=ns.tp,
+            sampler_us=ns.sampler_us,
+            provenance={"model_type": model_type,
+                        "architecture": arch_path.stem},
+        )
+        for name, n in sorted(counts.items()):
+            log.info("  %-18s %6d rows", name, n)
+        log.info("Wrote %s/tp%d", variant_root, ns.tp)
+        return 0
+
     # 4. Build per-session ProfileArgs.
     profile_args = _build_profile_args(
         ns, hf_id,
@@ -415,6 +477,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # 5. Dispatch.
+    # Imported here, not at module scope: these pull in torch and vLLM,
+    # which the export-v0 path above neither needs nor requires installed.
+    from profiler.core.runner import run_full, run_slice
+
     if ns.cmd == "profile":
         run_full(arch_path, profile_args, ns.out_root)
     elif ns.cmd == "slice":

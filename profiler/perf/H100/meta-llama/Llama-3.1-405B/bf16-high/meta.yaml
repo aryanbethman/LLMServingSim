@@ -1,0 +1,29 @@
+profiler_version: v0-export/1.1.0
+hardware: H100
+model: meta-llama/Llama-3.1-405B
+variant: bf16-high
+architecture: llama
+profiled_at: '2026-09-14T05:02:54+00:00'
+source: converted from a v0 profile bundle; not a direct measurement
+attention_grid:
+  prefill_chunk: [32, 64, 128, 256, 512, 1024, 2048]
+  kv: [0, 64, 128, 256, 512, 1024, 2048]
+  n_decode: [1, 2, 4, 8, 16, 32, 64, 128, 256]
+  max_kv: 2048
+skew_fit:
+  enabled: false
+v0_export:
+  attention_lookup: v0-additive
+  sampler_us: 0.0
+  sampler_note: v0 did not profile the sampler; this value is asserted, not measured
+  layernorm_rule: mean(input_layernorm, post_layernorm)
+  attention_rule: prefill(kv_prefill, prefill_chunk) + decode(n_decode, kv_decode)
+tp_degrees: [8]
+v0_sources:
+  tp8:
+    layers.csv: 69b648b3414c83dec986dd3eab2fa4c31b6c295a6ee7fca29ee290f36e8b0be9
+    attn_prefill_predictions.csv: 2d1a1dc47f041724614743a512e8d2b20ef953dce1819b60941e80ad2ff58f78
+    attn_decode_predictions.csv: b0491de24a70661e295f6803f5bb121a86e521b64fefd2d064a40a74e221f668
+    source_dir: profiler/v0/perf_models/H100/meta-llama/Llama-3.1-405B/tp8/variants/high
+    model_type: llama
+    architecture: llama

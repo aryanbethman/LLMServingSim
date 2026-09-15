@@ -1,0 +1,69 @@
+{
+  "calibration_bounds": {
+    "h100_dense_bf16_flops_per_second": 989000000000000.0,
+    "h100_hbm_bytes_per_second": 3350000000000.0,
+    "p90_relative_uncertainty": 0.21775255132905888
+  },
+  "generator_git_head": "9e9688ee8fb640d86b3e789c8253ea2895dd5ba8",
+  "generator_source_sha256": "512d8b2570d93577a62895c022f1677738ea7196a0a5c63bbd1a57aff8c5f887",
+  "hardware": "H100",
+  "measurement_status": "calibrated_projection_not_measured",
+  "memory_feasibility": {
+    "available_kv_bytes_per_gpu": 20268328448.0,
+    "communication_reserve_gb": 1.0,
+    "fits_weights_and_reserves": true,
+    "gpus_per_replica": 16,
+    "hbm_capacity_gb": 80.0,
+    "kv_bytes_per_token_per_gpu": 32256,
+    "max_kv_tokens_per_gpu": 628358,
+    "model": "meta-llama/Llama-3.1-405B",
+    "parameter_count_analytical": 405853372416,
+    "pipeline_parallel_degree": 2,
+    "precision": "bf16",
+    "runtime_reserve_gb": 8.0,
+    "single_128k_context_kv_gb_per_gpu": 4.227858432,
+    "tensor_parallel_degree": 8,
+    "weight_bytes_per_gpu": 50731671552.0
+  },
+  "method": "operator_geometry_transform_from_measured_h100_70b_tp4",
+  "method_version": "v1",
+  "model": "meta-llama/Llama-3.1-405B",
+  "physical_limit_check": {
+    "peak_effective_bf16_flops_per_second": 815924141275811.1,
+    "peak_effective_hbm_bytes_per_second": 2979276527932.945,
+    "valid": true,
+    "violations": []
+  },
+  "precision_bits": 16,
+  "schema_version": 1,
+  "source_files": {
+    "llm_profile/perf_models/H100/meta-llama/Llama-3.1-70B/tp4/layers.csv": "41fd31dd27f5295d309bc2c926a0c01dc1c772f321074afe84f41d81f6a60735",
+    "llm_profile/perf_models/H100/meta-llama/Llama-3.1-70B/tp4/predictions/attn_decode_predictions.csv": "c1e3cff9ed83df68e9d82ca9fa3570873e8cb7a17c42af7b0fbfd0c4d235026a",
+    "llm_profile/perf_models/H100/meta-llama/Llama-3.1-70B/tp4/predictions/attn_prefill_predictions.csv": "357438acb3f6ce755c64bc7e7ccfaed2e63072eba77d9c32dbf28b44cdd3ca93"
+  },
+  "target_tensor_parallel_degree": 8,
+  "validation": {
+    "failures": [],
+    "layer_names": [
+      "act_fn",
+      "attn",
+      "down_proj",
+      "embedding",
+      "final_layernorm",
+      "gate_proj",
+      "input_layernorm",
+      "k_proj",
+      "lm_head",
+      "o_proj",
+      "post_layernorm",
+      "q_proj",
+      "rope",
+      "up_proj",
+      "v_proj"
+    ],
+    "layer_rows": 30720,
+    "profile": "llm_profile/perf_models/H100/meta-llama/Llama-3.1-405B/tp8",
+    "target_tp": 8,
+    "valid": true
+  }
+}
