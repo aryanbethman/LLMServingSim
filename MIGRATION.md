@@ -16,8 +16,8 @@ Everything the fork's experiments use runs on the new version, including tiered
 P/D KV handoff and the profile projection generator, which the first pass of the
 port missed. The transport modes and memory fixes give exactly the same results
 as upstream's own path. Results do not match the old fork, because upstream's
-scheduler and memory model changed. Still open: nothing is pushed yet, and
-explicit DP groups only work in legacy mode.
+scheduler and memory model changed. The migration branches are published but
+not merged into `main`; explicit DP groups only work in legacy mode.
 
 ## What was ported
 
@@ -233,11 +233,12 @@ of the fork's configs use `dp_group`.
 use the old config fields. Regenerate them with
 `analysis/generate_scale_configs.py --npus 96`, or `--npus 8 --tp 8`.
 
-**Not published.** `.gitmodules` points `astra-sim` at
+**Published on migration branches.** `.gitmodules` points `astra-sim` at
 `github.com/aryanbethman/astra-sim`, and `astra-sim` points `chakra` at
-`github.com/aryanbethman/chakra`. The three branches are still only on this
-machine, so a fresh clone cannot fetch the submodule commits until they are
-pushed. See "Where the code is".
+`github.com/aryanbethman/chakra`. All three `migration/upstream-a4053bc`
+branches are published. A fresh recursive clone was verified to fetch the exact
+LLMServingSim, ASTRA-Sim and Chakra commits listed below. The migration has not
+been merged into `main`.
 
 ## Running it
 
@@ -333,9 +334,6 @@ checked byte-identical before that port, which changes nothing without
 | `astra-sim` | `migration/upstream-a4053bc` | upstream d346994, plus the fork's feeder commits, the chakra bump, compact-protocol logging, the leak fixes, the base64 fix and the chakra fork URL |
 | `chakra` | `migration/upstream-a4053bc` | upstream 30221ab, plus the fork's feeder and converter commits |
 
-None of it is pushed. Push the innermost repo first, so each pointer exists on
-the remote before anything refers to it:
-
-    git -C astra-sim/extern/graph_frontend/chakra push git@github.com:aryanbethman/chakra.git migration/upstream-a4053bc
-    git -C astra-sim push git@github.com:aryanbethman/astra-sim.git migration/upstream-a4053bc
-    git push origin migration/upstream-a4053bc
+All three branches are published. A recursive clone resolves the pinned
+submodule commits without using the original anjuna3 checkout. The migration is
+still isolated from `main` pending review and an explicit merge decision.
