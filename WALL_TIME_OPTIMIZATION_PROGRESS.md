@@ -205,3 +205,50 @@ Python still builds and normalises every rank. Exact rebasing needs per-node boo
 
 - **Python, +22 s:** per-rank node generation plus normalisation and hashing on the 60% of batches that miss the bindings cache. The misses are unique traces, and the single instance's PP overlays prevent relocation.
 - **ASTRA, +18 s:** mostly feeder construction (21 s) and allocator pressure. The same work costs legacy about half, because file-mode nodes are parsed straight into fresh objects.
+
+## Round 3: closing the 405B gap (2026-09-20)
+
+All pairs below ran both modes side by side under the same host load. The overnight 256-NPU runs were also active, so absolute walls read a few percent higher than solo runs.
+
+### The ASTRA side was allocator behaviour, not feeder work
+
+With the lazy binding decode in place, a paired ASTRA profile (`~/hipc-results/prof405-*-20260920`) showed feeder construction costing about the same in both modes (legacy `add_workload` 8.8%, shared `add_templates` 7.5%). The shared-only cost was `malloc`. Removing one allocation site (a fresh command string per read, then a `substr` copy of each bundle before parsing) only moved the time to other sites; total ASTRA CPU stayed about 190–200 s.
+
+Cause: shared mode interleaves large allocations (each ~80 KB bundle line, its JSON parse, decoded templates) with millions of small node allocations. With glibc fastbins populated, every large request runs `malloc_consolidate` over all of them.
+
+| 405B, same load | ASTRA CPU, default | `GLIBC_TUNABLES=glibc.malloc.mxfast=0` | + trim/mmap tuning |
+| --- | ---: | ---: | ---: |
+| shared | 200 s | 150 s | 150 s |
+| legacy | 164 s | 162 s | 158 s |
+
+Now built in as `mallopt(M_MXFAST, 0)` at the top of both analytical `main()`s (astra-sim `b87c9e2`), together with the reused command buffer and in-place JSON parse. Shared-mode ASTRA-Sim is now **cheaper than legacy's** on 405B (146–151 s vs 154–160 s).
+
+One legacy run launched together with three others exited at startup ("ASTRA closed stdout before a Waiting prompt", 0.4 s). An identical re-run succeeded. It was not reproduced; this may be the same family as MIGRATION.md's unexplained 2026-09-13 hang.
+
+### Python side
+
+- `_framed`: frame all node payloads in one bytearray, with a one-byte varint fast path. Checked byte-identical to the old per-node `_frame` join on random payloads across every varint boundary. `build` fell from 15.8 s to 7.4 s (profiled).
+- Collectives (`COMM_COLL_*`) used to take the full copy-and-strip normalisation. They now serialise directly whenever they carry neither a send/recv name nor a rank attribute, the exact case where that path changes nothing. A new unit test checks both fast paths against full normalisation for every node of TP, TP×PP (2 and 3 stages), decode and prefill conversions.
+- Tried and dropped: inlining the non-COMM case into `write_message` with sparse overlays. Output was identical but there was no measurable effect (Python 93 s either way).
+
+### Result
+
+| 405B TP8×PP2, same load | legacy | shared |
+| --- | ---: | ---: |
+| pair 1 | 3:57.94 | 3:57.28 |
+| pair 2 | 4:04.98 | 4:05.94 |
+| pair 3 | 4:05.45 | 4:04.77 |
+| pair 4 | 4:05.97 | 4:10.39 |
+| Python / ASTRA CPU (typical) | 85 s / 159 s | 93 s / 151 s |
+
+**405B is now at parity**: within ±2% across four pairs, compared with 40–60 s behind before this round. CSV and clock were identical in every run. Under the same load, 16-NPU shared ran 4:10.57 vs legacy 4:36.36.
+
+What remains on 405B is Python's per-node work across 16 ranks for the ~60% of batches that are unique traces (+8 s CPU), offset by ASTRA-Sim now being 8 s cheaper.
+
+### 256 NPUs (64 × TP4), overnight, frozen snapshots
+
+- **Shared-template, snapshot `48e7955` (before this round's allocator fix): 49:15.** Exit 0. Python 251 s, ASTRA-Sim 2,697 s CPU, 563 MiB tree RSS, 9,224 FS output blocks, minimum disk free 46.5 GiB. The old fork took 1:56:16 at this scale.
+- Legacy file mode from the same snapshot runs afterwards, with a disk watchdog (stop below 12 GiB free). Legacy keeps every per-NPU ET until exit, about 16 GB at 72 NPUs.
+- Then shared-template from snapshot `07dd7b1` (this round's code), queued automatically.
+
+Results: `~/hipc-results/scale256-*-20260920/summary.txt`; driver: `~/hipc-results/overnight.sh`, `overnight2.sh`, `queue2.sh`.
