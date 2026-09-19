@@ -120,5 +120,77 @@ class ExecutionTemplateTest(unittest.TestCase):
             self.assertEqual(fused_cached_stats, expected_cached_stats)
 
 
+    def test_normalisation_fast_paths_match_full_normalisation(self):
+        # _normalise_node skips the copy for nodes that carry nothing
+        # rank-specific; every node the converter emits must normalise
+        # exactly as the full copy-and-strip path would.
+        from serving.core import execution_templates as et
+        from serving.core.trace_generator import indexed_cols
+
+        def full(node):
+            copy = et.Node()
+            copy.CopyFrom(node)
+            original_name = None
+            match = et._RANK_NAME.match(copy.name)
+            if match:
+                original_name = copy.name
+                copy.name = match.group(1) + "_<src>_<dst>"
+            ranks, kept = [], []
+            for position, attribute in enumerate(copy.attr):
+                if attribute.name in et._RANK_ATTRIBUTES:
+                    ranks.append(et.RankAttributeOverlay(
+                        position, attribute.SerializeToString(deterministic=True)))
+                else:
+                    kept_attribute = et.AttributeProto()
+                    kept_attribute.CopyFrom(attribute)
+                    kept.append(kept_attribute)
+            if ranks:
+                del copy.attr[:]
+                copy.attr.extend(kept)
+            return (copy.SerializeToString(deterministic=True),
+                    et.NodeOverlay(original_name, tuple(ranks)))
+
+        seen = {"nodes": 0, "collectives": 0, "send_recv": 0}
+        test = self
+
+        class Probe:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def write_message(self, message):
+                if isinstance(message, et.Node):
+                    test.assertEqual(et._normalise_node(message), full(message), message.name)
+                    seen["nodes"] += 1
+                    seen["collectives"] += message.name.startswith("COMM_COLL")
+                    seen["send_recv"] += bool(et._RANK_NAME.match(message.name))
+
+        class Collector:
+            def open_rank(self, rank, id_base=None):
+                return Probe()
+
+        rows = tiny_trace_rows() + [[
+            "layer_c", "9", "LOCAL", "64", "LOCAL", "0", "LOCAL", "64",
+            "ALLGATHER", "2048", "NONE",
+        ]]
+        for header, npus in (
+            ("COLOCATED model_parallel_NPU_group: 1", 4),
+            ("COLOCATED model_parallel_NPU_group: 2 pp_stage_boundaries: 1", 8),
+            ("COLOCATED model_parallel_NPU_group: 3 pp_stage_boundaries: 1,2", 6),
+            ("DECODE model_parallel_NPU_group: 2 pp_stage_boundaries: 1", 4),
+            ("PREFILL model_parallel_NPU_group: 2 pp_stage_boundaries: 1", 4),
+        ):
+            converter = LLMConverter(None, None, npus, 0)
+            converter._reset_conversion_state()
+            converter._template_collector = Collector()
+            try:
+                converter.convert_rows(header, indexed_cols(rows))
+            finally:
+                converter._template_collector = None
+        self.assertGreater(seen["collectives"], 0)
+        self.assertGreater(seen["send_recv"], 0)
+
 if __name__ == "__main__":
     unittest.main()

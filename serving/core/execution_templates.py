@@ -85,6 +85,23 @@ def _read_frames(payload: bytes) -> Iterable[bytes]:
         yield frame
 
 
+def _framed(payloads) -> bytearray:
+    """Length-delimit and concatenate payloads, as _frame would one by one.
+
+    Node payloads are almost always under 128 bytes, whose varint length is
+    the single byte itself; this skips a Python-level varint per node.
+    """
+    out = bytearray()
+    for payload in payloads:
+        size = len(payload)
+        if size < 0x80:
+            out.append(size)
+        else:
+            out += _write_varint(size)
+        out += payload
+    return out
+
+
 def _frame(payload: bytes) -> bytes:
     return _write_varint(len(payload)) + payload
 
@@ -156,6 +173,11 @@ class TemplateCaptureStream:
         return False
 
     def write_message(self, message) -> None:
+        if message.__class__ is Node:
+            node_payload, overlay = _normalise_node(message)
+            self._node_payloads.append(node_payload)
+            self._overlays.append(overlay)
+            return
         if isinstance(message, GlobalMetadata):
             if self._metadata_payload is not None:
                 raise ValueError("ET stream contains more than one global metadata record")
@@ -170,7 +192,7 @@ class TemplateCaptureStream:
     def split(self) -> Tuple[ExecutionTemplate, RankOverlay]:
         if self._metadata_payload is None:
             raise ValueError("ET stream has no global metadata record")
-        template_bytes = b"".join(_frame(payload) for payload in self._node_payloads)
+        template_bytes = _framed(self._node_payloads)
         template = ExecutionTemplate(
             template_id=sha256(template_bytes).hexdigest(),
             node_payloads=tuple(self._node_payloads),
@@ -211,6 +233,15 @@ def _normalise_node(node) -> Tuple[bytes, NodeOverlay]:
     # protobuf copy and rebuilding an empty overlay for every rank.
     if not node.name.startswith("COMM_"):
         return node.SerializeToString(deterministic=True), _EMPTY_NODE_OVERLAY
+    # Collectives are COMM_ nodes too, but carry neither a rank-specific name
+    # nor rank attributes. When neither is present the copy below would change
+    # nothing, so serialise the node as it is.
+    if _RANK_NAME.match(node.name) is None:
+        for attribute in node.attr:
+            if attribute.name in _RANK_ATTRIBUTES:
+                break
+        else:
+            return node.SerializeToString(deterministic=True), _EMPTY_NODE_OVERLAY
 
     normalised = Node()
     normalised.CopyFrom(node)
@@ -259,7 +290,7 @@ def split_rank_et(payload: bytes) -> Tuple[ExecutionTemplate, RankOverlay]:
         node_payloads.append(normalised_payload)
         overlays.append(overlay)
 
-    template_bytes = b"".join(_frame(node_payload) for node_payload in node_payloads)
+    template_bytes = _framed(node_payloads)
     template = ExecutionTemplate(
         template_id=sha256(template_bytes).hexdigest(),
         node_payloads=tuple(node_payloads),
