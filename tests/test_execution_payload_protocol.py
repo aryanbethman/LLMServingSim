@@ -80,6 +80,10 @@ class ExecutionPayloadProtocolTest(unittest.TestCase):
                 "astra_cache_high_water_nodes": 0,
                 "astra_cache_evictions": 0,
                 "astra_cache_blocked_evictions": 0,
+                "astra_template_decode_ns": 0,
+                "astra_binding_parse_ns": 0,
+                "astra_direct_feeder_init_ns": 0,
+                "astra_direct_feeder_inits": 0,
                 "cached_template_definitions": 1,
             },
         )

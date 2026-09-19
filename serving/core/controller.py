@@ -21,6 +21,9 @@ _TEMPLATE_RELEASE_RE = re.compile(r"TEMPLATE_RELEASE ([0-9a-f]{64})\n?")
 _TEMPLATE_CACHE_RE = re.compile(
     r"TEMPLATE_CACHE (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)\n?"
 )
+_TEMPLATE_PROFILE_RE = re.compile(
+    r"TEMPLATE_PROFILE (\d+) (\d+) (\d+) (\d+)\n?"
+)
 
 
 class Controller():
@@ -47,6 +50,10 @@ class Controller():
             "astra_cache_high_water_nodes": 0,
             "astra_cache_evictions": 0,
             "astra_cache_blocked_evictions": 0,
+            "astra_template_decode_ns": 0,
+            "astra_binding_parse_ns": 0,
+            "astra_direct_feeder_init_ns": 0,
+            "astra_direct_feeder_inits": 0,
         }
         for i in range(total_num):
             self.end_dict[i] = -1
@@ -214,6 +221,16 @@ class Controller():
                     stats["astra_cache_evictions"],
                     stats["astra_cache_blocked_evictions"],
                 ) = map(int, cache_stats.groups())
+                return
+            profile_stats = _TEMPLATE_PROFILE_RE.fullmatch(output)
+            if profile_stats:
+                stats = self.template_transport_stats
+                (
+                    stats["astra_template_decode_ns"],
+                    stats["astra_binding_parse_ns"],
+                    stats["astra_direct_feeder_init_ns"],
+                    stats["astra_direct_feeder_inits"],
+                ) = map(int, profile_stats.groups())
             return
 
         match = _ITERATION_RE.search(output)
