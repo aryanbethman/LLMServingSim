@@ -246,6 +246,30 @@ Use `./env/bin/python` and put `env/bin` first on `PATH`. The machine-wide
 editable `chakra` install points at the fork's checkout and would shadow this
 tree's copy.
 
+ASTRA-Sim links protobuf 3.6.1 from `env/cpp`, a conda prefix inside this
+tree (ignored by git, like the rest of `env/`). Before 2026-09-19 the build
+had picked up the fork's `~/LLMServingSim/env` instead, so the binary carried
+a RUNPATH into the other checkout. The prefix holds the same conda-forge
+builds the fork used, byte for byte, so creating it needs no download when
+conda's package cache has them:
+
+    ~/miniconda3/bin/conda create -y --offline -p "$PWD/env/cpp" -c conda-forge -c defaults \
+      libprotobuf=3.6.1=hdbcaa40_1001 libstdcxx-ng=11.2.0=he4da1e4_16 \
+      zlib=1.2.13=h4ab18f5_6 libzlib=1.2.13=h4ab18f5_6 \
+      libgcc=15.1.0=h767d61c_5 libgcc-ng=15.1.0=h69a702a_5 \
+      libgomp=15.1.0=h767d61c_5 _openmp_mutex=5.1=1_gnu _libgcc_mutex=0.1=main
+
+Drop `--offline` on a machine without those packages cached. Then configure
+against it from a clean cache:
+
+    cd astra-sim/build/astra_analytical/build
+    rm -rf CMakeCache.txt CMakeFiles
+    PATH="$OLDPWD/env/cpp/bin:$PATH" cmake .. -DBUILDTARGET=all -DCMAKE_PREFIX_PATH="$OLDPWD/env/cpp"
+    cmake --build . -j 16
+
+`ldd build/bin/AstraSim_Analytical_Congestion_Unaware` should resolve
+`libprotobuf.so.17` and `libstdc++.so.6` under `env/cpp/lib`.
+
 A quick 405B run:
 
     ./env/bin/python -m serving \
