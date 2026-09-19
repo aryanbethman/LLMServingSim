@@ -101,6 +101,9 @@ class NodeOverlay:
     rank_attributes: Tuple[RankAttributeOverlay, ...]
 
 
+_EMPTY_NODE_OVERLAY = NodeOverlay(None, ())
+
+
 @dataclass(frozen=True)
 class RankOverlay:
     metadata_payload: bytes
@@ -202,6 +205,13 @@ class TemplateBundleCollector:
 
 
 def _normalise_node(node) -> Tuple[bytes, NodeOverlay]:
+    # Only communication nodes can carry the rank-varying name and
+    # comm_src/comm_dst/comm_tag attributes.  Most ET nodes are compute or
+    # memory operations, so serialise them directly rather than making a full
+    # protobuf copy and rebuilding an empty overlay for every rank.
+    if not node.name.startswith("COMM_"):
+        return node.SerializeToString(deterministic=True), _EMPTY_NODE_OVERLAY
+
     normalised = Node()
     normalised.CopyFrom(node)
     original_name = None
