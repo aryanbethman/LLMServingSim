@@ -168,3 +168,40 @@ Before today's work, shared mode on these workloads took 42:38 (72-NPU TP8) and 
 1. Send each NPU only its own rank's binding. The 405B binding parse is 14 s, and 72-NPU is 93,768 bundles for 45,911 batches.
 2. Convert one rank per PP stage on cache misses (rank-leader capture with an ASTRA-side node-ID rebase). Per-rank node IDs are what make 405B templates rank-unique.
 3. ASTRA allocator pressure in feeder construction: 127 s at 72 NPUs, 40 s at 405B.
+
+## Round 2 (2026-09-19/20)
+
+### Output equivalence, re-checked
+
+- 72-NPU TP8 and 405B TP8×PP2 `requests.csv` in both modes are byte-identical to the 2026-09-15 runs, which predate all of this work (`de762118…`, `9107f1ad…`; clocks 85,066,556,121 and 160,375,250,899 ns).
+- Regenerating all four upstream `bench/examples` gives byte-identical `sim.csv` and `validation/summary.txt`. The `sim.log` files differ only in run ID, install path and wall time.
+
+### Kept: decode only the bindings an NPU will build (astra-sim)
+
+Each batch reaches ASTRA-Sim twice: once at the instance's start NPU, which builds itself and its managed ranks, and once at the end NPU, which builds only itself. Both times ASTRA parsed every rank's binding. It now decodes only the ranks it will instantiate. Skipped bindings still refresh their template's LRU position exactly as a parse did, so evictions, releases and wire bytes are unchanged (405B: 13,712 definitions, 13,584 releases and 717,166,715 bytes both before and after). `decode_base64` also uses a lookup table instead of searching the alphabet for each character.
+
+| Run (solo) | Wall | Python CPU | ASTRA CPU | ASTRA binding parse / template decode |
+| --- | ---: | ---: | ---: | ---: |
+| 405B legacy | 3:45 | 79 s | 147 s | — |
+| 405B shared | 4:25 | 101 s | 165 s | 6.1 s / 4.2 s |
+| 16-NPU shared ×2 | 3:57.66 / 3:57.34 | | | |
+
+The 405B figures before this change came from four concurrent runs (legacy 4:10, shared 5:10), so they are not directly comparable. The solo gap is now 40 s, about half Python and half ASTRA.
+
+### Tried and reverted: rank-invariant templates
+
+The converter numbers nodes with one counter across all ranks, so every rank is its own template: 16 per 405B bundle, 4 per 16-NPU bundle. I built exact-by-construction rebasing. Templates stored rank-relative ids, the binding carried `id_base`, ASTRA's feeder mapped ids back, and every rank's ET rebuilt from the bundle matched direct conversion byte for byte. Clocks and CSVs matched.
+
+It worked as transport: 405B definitions fell 13,712 → 1,570 and wire bytes 717 MB → 135 MB; 16-NPU fell 5,416 → 1,067 and 359 MB → 101 MB. ASTRA binding parse and decode dropped to about 1.8 s. But it was slower overall:
+
+| | Before | Rebase, rewriting in the capture stream | Rebase, assigned in the converter |
+| --- | ---: | ---: | ---: |
+| 405B shared wall / Python CPU | 4:25 / 101 s | 5:06 / 149 s | 4:43 / 122 s |
+| 16-NPU shared wall | 3:57–3:59 | — | 4:02 |
+
+Python still builds and normalises every rank. Exact rebasing needs per-node bookkeeping: either rewriting and restoring ids and deps, or tracking which rank section created each node so cross-section use can be rejected. At about 78 M node creations per 405B run, that costs more than the ASTRA transport it saves. Rebasing only pays off together with converting one rank per stage, which would mean re-implementing the converter's per-rank side effects (the shared comm-tag counter) outside the converter. That is not worth the exactness risk for the remaining gap.
+
+### Where 405B's remaining 40 s is
+
+- **Python, +22 s:** per-rank node generation plus normalisation and hashing on the 60% of batches that miss the bindings cache. The misses are unique traces, and the single instance's PP overlays prevent relocation.
+- **ASTRA, +18 s:** mostly feeder construction (21 s) and allocator pressure. The same work costs legacy about half, because file-mode nodes are parsed straight into fresh objects.
