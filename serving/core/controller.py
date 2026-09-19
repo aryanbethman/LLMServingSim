@@ -177,6 +177,21 @@ class Controller():
         stats["duplicate_template_nodes"] += duplicate_template_nodes
         stats["rank_bindings"] += len(bundle["bindings"])
 
+    def write_template_bindings(self, p, cached):
+        """Send a cached bundle's rank bindings against templates ASTRA holds.
+
+        Writes the same line `write_template_bundle` would for a bundle with
+        no new template definitions; the bindings JSON was encoded once,
+        when the batch was first converted.
+        """
+        encoded = '{"templates":{},"bindings":' + cached.bindings_json + '}'
+        p.stdin.write("ET_TEMPLATE_BUNDLE " + encoded + "\n")
+        p.stdin.flush()
+        stats = self.template_transport_stats
+        stats["bundles"] += 1
+        stats["wire_bytes"] += len(encoded)
+        stats["rank_bindings"] += cached.rank_count
+
     def get_template_transport_stats(self):
         return {
             **self.template_transport_stats,

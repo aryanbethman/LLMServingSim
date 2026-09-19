@@ -20,7 +20,7 @@ from serving.core.utils import *
 from serving.core.controller import *
 from serving.core.memory_model import *
 from serving.core.graph_generator import *
-from serving.core.graph_generator import graph_cache_stats
+from serving.core.graph_generator import CachedTemplateBindings, graph_cache_stats
 from serving.core.trace_generator import *
 from serving.core import trace_generator  # for module-level state setters
 from serving.core.tiered_memory import TopologyAwareMemory
@@ -91,6 +91,8 @@ def _graph_payload(graph, template_mode):
     which shape it is.
     """
     if template_mode == "shared-template":
+        if isinstance(graph, CachedTemplateBindings):
+            return ("template-bindings", graph)
         bundle, _stats = graph
         return ("template-bundle", bundle)
     return ("et-payloads", graph)
@@ -108,6 +110,8 @@ def _send_workload(controller, p, workload):
         kind, payload = workload
         if kind == "template-bundle":
             controller.write_template_bundle(p, payload)
+        elif kind == "template-bindings":
+            controller.write_template_bindings(p, payload)
         else:
             controller.write_payloads(p, payload)
     else:

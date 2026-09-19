@@ -1,5 +1,6 @@
 import glob
 import hashlib
+import json
 import os
 from collections import OrderedDict
 from time import time
@@ -47,9 +48,114 @@ _ET_SEEN = OrderedDict()
 _ET_SEEN_MAX = 200_000
 
 
+# ----------------------------------------------------------------------
+# Shared-template bindings cache: the _ET_CACHE's counterpart for the
+# file-free path.
+#
+# A converter is built fresh per batch, so a shared-template bundle is a
+# pure function of the trace rows plus (num_npus, npu_offset,
+# local_offloading) -- the same key the _ET_CACHE uses. The global
+# metadata carries input_file=None in this mode, so nothing batch-specific
+# leaks in.
+#
+# npu_offset is left out of the key. Identical instances produce identical
+# traces, and when no rank carries a comm/name overlay (TP-only graphs:
+# collectives, no send/recv) the bindings differ only in their global rank
+# ids, so a hit relocates them to the requesting instance's offset. On the
+# 16-NPU ShareGPT-750 run (4 x TP4) keying on the offset made the same
+# batch shape four separate entries. Bindings that do carry overlays hold
+# global peer ids inside them, so they only hit at the offset that produced
+# them.
+#
+# Only the rank bindings are held, pre-encoded per local rank as the exact
+# JSON the controller would have written, never the template bodies:
+# ASTRA-Sim owns those. A hit is served only when every template it references is still
+# in the controller's sent set -- the same condition under which a fresh
+# conversion would have produced a bundle with no template definitions --
+# so the wire bytes are identical to a miss. Otherwise the batch is
+# converted again, which re-sends what ASTRA-Sim evicted.
+#
+# LLMSS_TEMPLATE_BINDINGS_CACHE_BYTES bounds it (0 disables);
+# LLMSS_VERIFY_TEMPLATE_BINDINGS_CACHE=1 re-converts every hit and fails
+# on any difference.
+# ----------------------------------------------------------------------
+_BINDINGS_CACHE = OrderedDict()    # key -> CachedTemplateBindings
+_BINDINGS_CACHE_BYTES = 0
+_BINDINGS_CACHE_MAX_BYTES = int(
+    os.environ.get("LLMSS_TEMPLATE_BINDINGS_CACHE_BYTES", 16 * 1024 * 1024))
+_BINDINGS_CACHE_VERIFY = os.environ.get(
+    "LLMSS_VERIFY_TEMPLATE_BINDINGS_CACHE") == "1"
+_BINDINGS_CACHE_STATS = {"hit": 0, "relocated_hit": 0, "miss": 0,
+                         "offset_mismatch": 0, "template_evicted": 0,
+                         "verified": 0, "evictions": 0,
+                         "relocatable_entries_stored": 0,
+                         "fixed_entries_stored": 0}
+
+
+class CachedTemplateBindings:
+    """A cache hit: rank bindings to send against templates ASTRA holds."""
+
+    __slots__ = ("template_ids", "bindings_json", "rank_count")
+
+    def __init__(self, template_ids, bindings_json, rank_count):
+        self.template_ids = template_ids
+        self.bindings_json = bindings_json
+        self.rank_count = rank_count
+
+
+class _BindingsEntry:
+    """Per-local-rank encoded bindings for one trace."""
+
+    __slots__ = ("template_ids", "ranks", "npu_offset", "relocatable", "nbytes")
+
+    def __init__(self, template_ids, ranks, npu_offset, relocatable):
+        self.template_ids = template_ids
+        self.ranks = ranks              # ((local_rank, value_json), ...)
+        self.npu_offset = npu_offset
+        self.relocatable = relocatable
+        self.nbytes = (sum(len(v) + 16 for _, v in ranks)
+                       + 64 * len(template_ids) + 128)
+
+    def encode(self, npu_offset):
+        body = ",".join('"%d":%s' % (npu_offset + local, value)
+                        for local, value in self.ranks)
+        return CachedTemplateBindings(self.template_ids, "{" + body + "}",
+                                      len(self.ranks))
+
+
+def _bindings_entry(bundle, npu_offset):
+    bindings = bundle["bindings"]
+    template_ids = tuple(sorted({b["template_id"] for b in bindings.values()}))
+    ranks = tuple(
+        (int(rank) - npu_offset, json.dumps(value, separators=(",", ":")))
+        for rank, value in bindings.items()
+    )
+    relocatable = all(not value["nodes"] for value in bindings.values())
+    return _BindingsEntry(template_ids, ranks, npu_offset, relocatable)
+
+
+def _bindings_cache_store(key, entry):
+    global _BINDINGS_CACHE_BYTES
+    if entry.nbytes > _BINDINGS_CACHE_MAX_BYTES:
+        return
+    old = _BINDINGS_CACHE.pop(key, None)
+    if old is not None:
+        _BINDINGS_CACHE_BYTES -= old.nbytes
+    _BINDINGS_CACHE[key] = entry
+    _BINDINGS_CACHE_BYTES += entry.nbytes
+    while _BINDINGS_CACHE_BYTES > _BINDINGS_CACHE_MAX_BYTES:
+        _, evicted = _BINDINGS_CACHE.popitem(last=False)
+        _BINDINGS_CACHE_BYTES -= evicted.nbytes
+        _BINDINGS_CACHE_STATS["evictions"] += 1
+
+
 def graph_cache_stats():
-    """Hit/miss counts for the converted-graph cache."""
-    return dict(_ET_CACHE_STATS, entries=len(_ET_CACHE), bytes=_ET_CACHE_BYTES)
+    """Hit/miss counts for the converted-graph and template-bindings caches."""
+    return dict(_ET_CACHE_STATS, entries=len(_ET_CACHE), bytes=_ET_CACHE_BYTES,
+                template_bindings=dict(_BINDINGS_CACHE_STATS,
+                                       entries=len(_BINDINGS_CACHE),
+                                       bytes=_BINDINGS_CACHE_BYTES,
+                                       max_bytes=_BINDINGS_CACHE_MAX_BYTES))
 
 
 def _rows_digest(trace):
@@ -155,10 +261,47 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
             None, None, num_npus, npu_offset, enable_local_offloading,
         )
         if template_mode == "shared-template":
-            return converter.convert_rows_to_template_bundle(
+            if _BINDINGS_CACHE_MAX_BYTES <= 0:
+                return converter.convert_rows_to_template_bundle(
+                    trace.header_line, indexed_cols(trace.rows),
+                    known_template_ids=known_template_ids,
+                )
+            key = (_rows_digest(trace), num_npus, enable_local_offloading)
+            entry = _BINDINGS_CACHE.get(key)
+            if entry is None:
+                _BINDINGS_CACHE_STATS["miss"] += 1
+            elif not (entry.relocatable or entry.npu_offset == npu_offset):
+                _BINDINGS_CACHE_STATS["offset_mismatch"] += 1
+            elif known_template_ids is None or not all(
+                    t in known_template_ids for t in entry.template_ids):
+                _BINDINGS_CACHE_STATS["template_evicted"] += 1
+            else:
+                _BINDINGS_CACHE.move_to_end(key)
+                _BINDINGS_CACHE_STATS["hit"] += 1
+                if entry.npu_offset != npu_offset:
+                    _BINDINGS_CACHE_STATS["relocated_hit"] += 1
+                cached = entry.encode(npu_offset)
+                if _BINDINGS_CACHE_VERIFY:
+                    bundle, _ = converter.convert_rows_to_template_bundle(
+                        trace.header_line, indexed_cols(trace.rows),
+                        known_template_ids=known_template_ids,
+                    )
+                    fresh = json.dumps(bundle["bindings"], separators=(",", ":"))
+                    if bundle["templates"] or fresh != cached.bindings_json:
+                        raise RuntimeError(
+                            "template-bindings cache hit differs from a "
+                            "fresh conversion")
+                    _BINDINGS_CACHE_STATS["verified"] += 1
+                return cached
+            result = converter.convert_rows_to_template_bundle(
                 trace.header_line, indexed_cols(trace.rows),
                 known_template_ids=known_template_ids,
             )
+            fresh_entry = _bindings_entry(result[0], npu_offset)
+            _BINDINGS_CACHE_STATS["relocatable_entries_stored" if fresh_entry.relocatable
+                                  else "fixed_entries_stored"] += 1
+            _bindings_cache_store(key, fresh_entry)
+            return result
         return converter.convert_rows_to_payloads(
             trace.header_line, indexed_cols(trace.rows),
         )
