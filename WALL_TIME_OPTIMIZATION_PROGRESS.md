@@ -119,3 +119,52 @@ The processes take turns over the pipe with no measurable idle time, so wall tim
 - ASTRA is still 17 s of CPU above legacy: `issue_dep_free_nodes` and general malloc pressure (`_int_malloc`/`malloc_consolidate`).
 - Every NPU that asks for a batch receives the full 4-rank bundle and ASTRA parses all four bindings: 31,872 bundles for 15,936 batches.
 - The 7,323 cache misses still convert all four TP ranks; node IDs are offset per rank, so rank-leader capture needs an ID-rebase in ASTRA.
+
+## Release gate, toolchain and scaling (2026-09-19, evening)
+
+### Toolchain
+
+ASTRA-Sim now builds against `env/cpp`, a repo-owned conda prefix holding byte-identical protobuf 3.6.1 and libstdc++ builds. It no longer depends on the fork's `~/LLMServingSim/env`; MIGRATION.md has the recipe. The rebuilt binary passes 58/58 legacy and 46/46 shared-template clock scenarios, and 56/56 unit tests pass. The Python side already used this repo's venv; its installed `chakra` matches the checked-out Python sources.
+
+### 16-NPU gate on the rebuilt binary
+
+| Run | Wall | CSV / clock | Tree RSS |
+| --- | ---: | --- | ---: |
+| shared, warm r1–r3 | 3:59.20 / 3:58.64 / 3:59.70 | exact | 208.8–209.5 MiB |
+| legacy, warm | 4:07.08 | exact | 214.1 MiB |
+| shared, cold | 3:58.45 | exact | 208.2 MiB |
+| legacy, cold | 4:07.78 | exact | 212.9 MiB |
+
+"Cold" means the simulator's files (repo, both envs, binary, profiles, dataset, Python interpreter and stdlib; 42,251 files, 1.98 GiB) were evicted with `posix_fadvise(DONTNEED)` before each run (`~/hipc-results/evict.py`). A full page-cache drop needs root. Startup I/O makes no measurable difference in either mode.
+
+### FD gate: replace the tree total
+
+The ≤18 figure summed the launcher wrappers (`/usr/bin/time`, `timeout`) with the simulator. Measured per process, mid-run:
+
+| | Python | ASTRA-Sim |
+| --- | ---: | ---: |
+| shared, 16 or 72 NPUs | 7 | 6 |
+| legacy, 72 NPUs | 7 | 78 (one open `.et` per NPU) |
+
+Python's fd 3 is `stderr_time.log`, inherited from `/usr/bin/time`. Proposed gate: the simulator processes hold a constant number of FDs independent of NPU count (13 in shared mode). Legacy grows by one per NPU.
+
+### Scaling (ShareGPT-750, upstream defaults, the two modes run concurrently on the host)
+
+| Workload | Mode | Wall | Python CPU | ASTRA CPU | Tree RSS | FS output blocks | CSV / clock |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 70B TP8, 72 NPUs | legacy | 31:04 | 728 s | 1,122 s | 366 MiB | 33,068,968 | match |
+| 70B TP8, 72 NPUs | shared | **23:02** | 209 s | 1,165 s | 349 MiB | 5,424 | match |
+| 405B TP8×PP2 | legacy | **4:10** | 85 s | 164 s | 216 MiB | 5,079,976 | match |
+| 405B TP8×PP2 | shared | 5:10 | 108 s | 201 s | 215 MiB | 4,592 | match |
+| 405B TP8×PP2 | shared, 2,048-template cache | 5:39 | 106 s | 233 s | 769 MiB | 4,960 | match |
+
+Before today's work, shared mode on these workloads took 42:38 (72-NPU TP8) and 7:08 (405B).
+
+- **72-NPU TP8: shared is 26% faster than legacy.** Nine identical TP8 instances give an 85% bindings-cache hit rate (39,158 of 45,911 batches, 35,101 of them relocated across instances), and Python CPU falls 3.5×. ASTRA simulation dominates and is about equal in both modes.
+- **405B TP8×PP2: shared is still 24% slower than legacy.** There is one instance, and its PP send/recv overlays make bindings non-relocatable, so the cache hits only 40%. Its templates are mostly unique (12,064 definitions even with a 2,048-entry ASTRA cache), so a larger ASTRA cache costs memory and helps nothing. ASTRA stage timers: feeder construction 40 s, binding parse 14 s (every NPU parses all 16 ranks' bindings), template decode 9 s.
+
+### Open items for the next round
+
+1. Send each NPU only its own rank's binding. The 405B binding parse is 14 s, and 72-NPU is 93,768 bundles for 45,911 batches.
+2. Convert one rank per PP stage on cache misses (rank-leader capture with an ASTRA-side node-ID rebase). Per-rank node IDs are what make 405B templates rank-unique.
+3. ASTRA allocator pressure in feeder construction: 127 s at 72 NPUs, 40 s at 405B.
