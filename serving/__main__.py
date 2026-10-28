@@ -21,7 +21,8 @@ from serving.core.controller import *
 from serving.core.memory_model import *
 from serving.core.graph_generator import *
 from serving.core.graph_generator import (CachedTemplateBindings, graph_cache_stats,
-                                          set_template_value_overlay)
+                                          set_template_value_overlay,
+                                          set_legacy_value_fastpath)
 from serving.core.trace_generator import *
 from serving.core import trace_generator  # for module-level state setters
 from serving.core.tiered_memory import TopologyAwareMemory
@@ -33,6 +34,7 @@ from serving.core.router import *
 from serving.core.power_model import *
 from serving.core.logger import *
 from serving.core.run_paths import build_run_paths, resolve_run_id
+from serving.core.load_observer import LoadObserver
 import sys as flush
 
 from pyinstrument import Profiler
@@ -372,6 +374,12 @@ def main():
                         help='write aggregate execution-template transport metrics to this '
                         'JSON path: bundles sent, wire bytes, templates defined vs deduplicated, '
                         'and the template cache ASTRA-Sim reports back')
+    parser.add_argument('--load-stats-output', type=str, default=None,
+                        help='write replica batch occupancy and sampled queues; colocated PP=1 only')
+    parser.add_argument('--load-window-start-sec', type=float, default=0,
+                        help='start of the simulated-time measurement window')
+    parser.add_argument('--load-window-end-sec', type=float, default=None,
+                        help='end of the simulated-time window; required with --load-stats-output')
     parser.add_argument('--execution-template-mode',
                         choices=['legacy', 'in-memory', 'shared-template'], default='legacy',
                         help='how execution graphs reach ASTRA-Sim: legacy writes one llm.<npu>.et '
@@ -391,6 +399,9 @@ def main():
                         'durations and comm/tensor sizes out of the structural template and '
                         'send them per batch, so batches that differ only in token counts '
                         'share one template. Results are unchanged; off by default')
+    parser.add_argument('--legacy-value-fastpath', action='store_true',
+                        help='cache mutable rank graphs and update values directly while '
+                        'retaining legacy ET file delivery; an ablation, off by default')
     parser.add_argument('--profile-variant', type=str, default=None,
                         help='pin profile lookups to perf/<hw>/<model>/<VARIANT>/ instead of '
                         'deriving the folder from dtype. Use it to select an uncertainty arm of '
@@ -499,6 +510,14 @@ def main():
         args.execution_template_mode, args.network_backend, raw_cluster_config)
     if startup_error:
         parser.error(startup_error)
+    if args.load_stats_output is not None:
+        if (args.load_window_end_sec is None or
+                not 0 <= args.load_window_start_sec < args.load_window_end_sec < float('inf')):
+            parser.error('load statistics require finite 0 <= window start < window end')
+        if any(inst.get('pp_size', 1) != 1 or inst.get('dp_group') is not None or
+               inst.get('pd_type') not in (None, 'colocated')
+               for inst in _iter_raw_instances(raw_cluster_config)):
+            parser.error('load statistics support colocated PP=1 replicas without DP groups')
 
     # Pinned before any trace is generated, so no lookup can race it.
     if args.profile_variant:
@@ -512,6 +531,10 @@ def main():
             parser.error('--template-value-overlay requires '
                          '--execution-template-mode=shared-template')
         set_template_value_overlay(True)
+    if args.legacy_value_fastpath:
+        if args.execution_template_mode != 'legacy':
+            parser.error('--legacy-value-fastpath requires --execution-template-mode=legacy')
+        set_legacy_value_fastpath(True)
     
     args.run_id = resolve_run_id(args.run_id)
     run_paths = build_run_paths(astra_sim, args.run_id, args.inputs_root)
@@ -827,6 +850,14 @@ def main():
     dp_ready_workloads = defaultdict(deque)  # npu_id -> deque[workload_path]
 
     # ----------------------------------- Start simulation loop ------------------------------------
+    load_observer = None
+    if args.load_stats_output is not None:
+        load_path = args.load_stats_output
+        if not os.path.isabs(load_path):
+            load_path = os.path.join(_LAUNCH_CWD, load_path)
+        load_observer = LoadObserver(load_path, num_instances,
+                                     round(args.load_window_start_sec * FREQ),
+                                     round(args.load_window_end_sec * FREQ))
     print_markup("[sim.heading]▶ Starting simulation...[/]\n")
     flush.stdout.flush()
 
@@ -869,7 +900,14 @@ def main():
             waiting_request[instance_id] = True
 
         # check request is done
+        observed_batch = None
+        if load_observer is not None:
+            observed_batch = next((b for b in schedulers[instance_id].inflight
+                                   if b.batch_id == id - 1), None)
         prompt_t, gen_t, finished_reqs = schedulers[instance_id].add_done(id, sys, current)
+        if (observed_batch is not None and
+                observed_batch not in schedulers[instance_id].inflight):
+            load_observer.complete(instance_id, observed_batch, current)
         # add tokens in throughput
         prompt_th += prompt_t
         total_prompt += prompt_t
@@ -901,6 +939,8 @@ def main():
         # pipeline stage blocked forever on a RECV that never came.
         pending = dp_ready_workloads.get(sys)
         new_req = None if pending else schedulers[instance_id].schedule(current, sys, id)
+        if load_observer is not None and new_req is not None and len(new_req.fired) == 1:
+            load_observer.begin(instance_id, new_req)
         responded = False  # track whether we already sent a response to ASTRA-Sim
 
         # Hand over a workload pre-generated by a DP round this NPU opened.
@@ -1185,6 +1225,9 @@ def main():
                                             inputs_root=run_paths.inputs_root)
                     controller.write_flush(p, workload)
 
+        if load_observer is not None:
+            load_observer.sample(current, schedulers)
+
         # check time to store throughput (only print on start NPU to avoid transient states)
         if current > last_log + INTERVAL and sys == inst2npu_mapping[instance_id]:
             # store the prompt
@@ -1466,12 +1509,25 @@ def main():
                            "tier/fabric metrics")
 
     if args.execution_template_stats_output is not None:
+        # Reap ASTRA before reading child CPU totals. The runner uses this
+        # report for every mode, including legacy, so accounting is matched.
+        p.wait(timeout=30)
+        cpu_times = os.times()
         stats = controller.get_template_transport_stats()
         stats["mode"] = args.execution_template_mode
         stats["template_value_overlay"] = args.template_value_overlay
         stats["graph_cache"] = graph_cache_stats()
+        stats["process_cpu_seconds"] = {
+            "python_user": cpu_times.user, "python_system": cpu_times.system,
+            "children_user": cpu_times.children_user,
+            "children_system": cpu_times.children_system,
+            "children_definition": "ASTRA-Sim plus any completed frontend helper subprocesses"}
         _write_json_report(args.execution_template_stats_output, stats,
                            "execution-template transport metrics")
+
+    if load_observer is not None:
+        _write_json_report(str(load_observer.path), load_observer.finish(current),
+                           "replica load metrics")
 
     # --save-trace-text writes the text into the run directory, so keeping it
     # is implied: producing the text and then deleting it would be pointless.

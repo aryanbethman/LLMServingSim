@@ -8,6 +8,7 @@ from .request import *
 from .logger import get_logger
 from .run_paths import input_path
 from .template_fastpath import ValueFastPath
+from .legacy_fastpath import LegacyValueFastPath
 from .trace_generator import indexed_cols, write_trace
 
 logger = get_logger("GraphGenerator")
@@ -103,6 +104,14 @@ _BINDINGS_CACHE_STATS = {"hit": 0, "relocated_hit": 0, "miss": 0,
 # kept (default 256).
 _TEMPLATE_VALUES = False
 _VALUE_FASTPATH = None
+_LEGACY_VALUE_FASTPATH = None
+
+
+def set_legacy_value_fastpath(enabled):
+    global _LEGACY_VALUE_FASTPATH
+    _LEGACY_VALUE_FASTPATH = (LegacyValueFastPath(
+        max_entries=int(os.environ.get("LLMSS_VALUE_FASTPATH_ENTRIES", 256)),
+        verify=os.environ.get("LLMSS_VERIFY_VALUE_FASTPATH") == "1") if enabled else None)
 
 
 # Turns the value overlay, and its fast path, on or off for every later shared-template conversion. Called by: serving.__main__.main, tests.
@@ -201,6 +210,9 @@ def graph_cache_stats():
                                         max_bytes=_BINDINGS_CACHE_MAX_BYTES))
     if _VALUE_FASTPATH is not None:
         stats["value_fastpath"] = dict(_VALUE_FASTPATH.stats, entries=len(_VALUE_FASTPATH._entries))
+    if _LEGACY_VALUE_FASTPATH is not None:
+        stats["legacy_value_fastpath"] = dict(_LEGACY_VALUE_FASTPATH.stats,
+                                              entries=len(_LEGACY_VALUE_FASTPATH.entries))
     return stats
 
 
@@ -394,7 +406,17 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
     converter = _get_llm_converter()(
         trace_path, output_path, num_npus, npu_offset, enable_local_offloading,
     )
-    converter.convert_rows(trace.header_line, indexed_cols(trace.rows))
+    cols = indexed_cols(trace.rows)
+    if _LEGACY_VALUE_FASTPATH is None:
+        converter.convert_rows(trace.header_line, cols)
+    else:
+        payloads = _LEGACY_VALUE_FASTPATH.payloads(
+            trace.header_line, cols, num_npus, npu_offset, enable_local_offloading,
+            converter.get_global_metadata().SerializeToString(deterministic=True),
+            lambda rows: converter.convert_rows_to_payloads(trace.header_line, rows))
+        for rank, payload in payloads.items():
+            with open(f"{output_path}.{rank}.et", "wb") as handle:
+                handle.write(payload)
 
     _cache_store(cache_key, _et_names(workload_dir) - before)
     return
