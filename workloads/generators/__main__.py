@@ -25,6 +25,10 @@ def main() -> int:
     from workloads.generators.swebench import register_args as sb_register
     sb_register(sb)
 
+    rep = sub.add_parser("replicate-sessions", help="Reschedule complete recorded agent sessions")
+    from workloads.generators.replicate_sessions import register_args as rep_register
+    rep_register(rep)
+
     args = parser.parse_args()
 
     if args.generator == "sharegpt":
@@ -32,6 +36,9 @@ def main() -> int:
         return run(args)
     if args.generator == "swebench":
         from workloads.generators.swebench import run
+        return run(args)
+    if args.generator == "replicate-sessions":
+        from workloads.generators.replicate_sessions import run
         return run(args)
 
     parser.error(f"Unknown generator: {args.generator}")
