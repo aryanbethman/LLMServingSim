@@ -12,7 +12,7 @@ produce the same templates and bindings, and differ only in which row field
 lands in which value slot.
 
 The first batch of a shape is converted normally. The rows are also
-converted once with every non-zero number replaced by a tag naming its
+converted once with every varying number replaced by a tag naming its
 (row, field), which shows where each slot's value comes from. That map is
 kept only if it reproduces the real conversion exactly; a shape whose values
 are not plain copies (PIM adds two sizes) always uses the converter. Every
@@ -87,7 +87,10 @@ def _tagged(cols: List[list]) -> List[list]:
     for row, col in enumerate(cols):
         copy = list(col)
         for column in _numeric_columns(col):
-            if int(col[column]) != 0:
+            # Input/output sizes can cross zero without changing the graph.
+            # Tag these slots even when zero so they remain dynamic values.
+            # Compute, weight and comm zeros can remove nodes; preserve them.
+            if int(col[column]) != 0 or (len(col) == _LAYER_FIELDS and column in (3, 7)):
                 copy[column] = _tag(row, column)
         tagged.append(copy)
     return tagged

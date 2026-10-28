@@ -7,6 +7,21 @@ from test_template_value_fastpath import dense_rows, moe_rows, TP_HEADER, PP_HEA
 
 
 class LegacyFastPathTest(unittest.TestCase):
+    def test_memory_sizes_can_cross_zero_after_learning(self):
+        fast = LegacyValueFastPath(verify=True)
+        converter = LLMConverter("trace", None, 2)
+        convert = lambda c: converter.convert_rows_to_payloads(TP_HEADER, c)
+        for size in (0, 128, 0, 256):
+            rows = [list(row) for row in dense_rows()]
+            rows[0][2:4] = ["REMOTE:0", str(size)]
+            rows[-1][6:8] = ["REMOTE:0", str(size)]
+            cols = indexed_cols(rows)
+            got = fast.payloads(TP_HEADER, cols, 2, 0, False,
+                                converter.get_global_metadata().SerializeToString(), convert)
+            self.assertEqual(got, convert(cols))
+        self.assertEqual(fast.stats["learned"], 1)
+        self.assertEqual(fast.stats["hit"], 3)
+
     def test_rank_bytes_equal_full_conversion_with_changing_values_and_metadata(self):
         for header, rows, ranks in ((TP_HEADER, dense_rows, 4),
                                      (PP_HEADER, dense_rows, 4),

@@ -84,6 +84,18 @@ class FastPathMatchesFullConversionTest(unittest.TestCase):
     def test_moe_expert_markers(self):
         self.check_sequence(TP_HEADER, moe_rows, 2)
 
+    def test_memory_sizes_can_cross_zero_after_learning(self):
+        fastpath = ValueFastPath(verify=True)
+        for size in (0, 128, 0, 256):
+            rows = [list(row) for row in dense_rows()]
+            rows[0][2:4] = ["REMOTE:0", str(size)]
+            rows[-1][6:8] = ["REMOTE:0", str(size)]
+            got, _ = run(fastpath, TP_HEADER, rows)
+            expected, _ = full(TP_HEADER, indexed_cols(rows), 2, 0, set())
+            self.assertEqual(wire(got), wire(expected))
+        self.assertEqual(fastpath.stats["learned"], 1)
+        self.assertEqual(fastpath.stats["hit"], 3)
+
     def test_evicted_templates_are_sent_again(self):
         fastpath = ValueFastPath()
         first, _ = run(fastpath, TP_HEADER, dense_rows(1))
