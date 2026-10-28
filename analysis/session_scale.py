@@ -99,10 +99,24 @@ def run(args):
             raise RuntimeError("insufficient available memory before launch")
         result.mkdir(parents=True)
         run_id = "session-scale-" + uuid.uuid4().hex[:12]
-        cmd = [sys.executable, "-m", "serving", "--cluster-config", str(config),
+        scratch_parent = (args.scratch_parent.resolve() if args.scratch_parent else
+                          REPO / "astra-sim/inputs/runs")
+        scratch_parent.mkdir(parents=True, exist_ok=True)
+        scratch = scratch_parent / run_id
+        if shutil.disk_usage(scratch_parent).free < args.min_free_gib * 2**30:
+            raise RuntimeError("insufficient free scratch space before launch")
+        input_manifest = dataset.with_suffix(dataset.suffix + ".manifest.json")
+        if input_manifest.exists():
+            expected_requests = json.loads(input_manifest.read_text())["num_calls"]
+        else:
+            with dataset.open() as handle:
+                expected_requests = sum(len(row.get("sub_requests", [row]))
+                                        for row in map(json.loads, handle))
+        cmd = [sys.executable, "-m", "serving", "--cluster-config", os.path.relpath(config, REPO),
                "--dataset", os.path.relpath(dataset, REPO),
                "--network-backend", "analytical", "--dtype", "bfloat16", "--block-size", "16",
                "--compact-controller-protocol", "--run-id", run_id,
+               "--inputs-root", str(scratch), "--keep-inputs",
                "--execution-template-stats-output", str(result / "templates.json"),
                "--load-stats-output", str(result / "load.json"),
                "--load-window-start-sec", str(args.window_start),
@@ -117,13 +131,28 @@ def run(args):
         env["LLMSS_VALUE_FASTPATH_ENTRIES"] = "256"
         env["LLMSS_TEMPLATE_BINDINGS_CACHE_BYTES"] = str(16 * 1024 * 1024)
         env["LLMSS_VERIFY_VALUE_FASTPATH"] = "1" if args.verify else "0"
+        env["LLMSS_VERIFY_TEMPLATE_BINDINGS_CACHE"] = "1" if args.verify else "0"
         source_hashes = {str(p.relative_to(REPO)): file_sha256(p)
                          for prefix in ("serving", "analysis", "workloads/generators")
                          for p in (REPO / prefix).rglob("*.py")}
         roots = {"main": REPO, "astra": REPO / "astra-sim",
                  "chakra": REPO / "astra-sim/extern/graph_frontend/chakra"}
+        binary = REPO / "astra-sim/build/astra_analytical/build/AnalyticalAstra/bin/AnalyticalAstra"
+        raw_config = json.loads(config.read_text())
+        profile_files = set()
+        for node in raw_config["nodes"]:
+            for instance in node["instances"]:
+                variant = REPO / "profiler/perf" / instance["hardware"] / instance["model_name"] / args.profile_variant
+                profile_files.update(variant.rglob("*.csv"))
+                profile_files.update(variant.glob("meta.yaml"))
         manifest = {"mode": args.mode, "command": cmd, "run_id": run_id,
                     "config_sha256": file_sha256(config), "dataset_sha256": file_sha256(dataset),
+                    "expected_requests": expected_requests,
+                    "measurement_window_seconds": [args.window_start, args.window_end],
+                    "binary_sha256": file_sha256(binary),
+                    "profile_sha256": {str(p.relative_to(REPO)): file_sha256(p) for p in sorted(profile_files)},
+                    "scratch_parent": str(scratch_parent),
+                    "scratch_filesystem": subprocess.check_output(["df", "-PT", str(scratch_parent)], text=True),
                     "source_hashes": source_hashes,
                     "git": {name: {"head": git("rev-parse", "HEAD", cwd=root),
                                     "status": git("status", "--short", cwd=root)}
@@ -146,18 +175,19 @@ def run(args):
                                        stderr=stderr, start_new_session=True)
             with (result / "host.csv").open("w", newline="") as monitor:
                 writer = csv.writer(monitor)
-                writer.writerow(("wall_seconds", "tree_rss_bytes", "free_disk_bytes", "available_memory_bytes"))
+                writer.writerow(("wall_seconds", "tree_rss_bytes", "free_disk_bytes", "free_scratch_bytes", "available_memory_bytes"))
                 while process.poll() is None:
                     elapsed = time.monotonic() - started
                     rss = process_tree_rss(process.pid)
                     peak_rss = max(peak_rss, rss)
                     free_disk = shutil.disk_usage(REPO).free
+                    free_scratch = shutil.disk_usage(scratch_parent).free
                     memory = available_memory()
-                    writer.writerow((round(elapsed, 3), rss, free_disk, memory))
+                    writer.writerow((round(elapsed, 3), rss, free_disk, free_scratch, memory))
                     monitor.flush()
                     if elapsed > args.timeout:
                         abort = "timeout"
-                    elif free_disk < args.min_free_gib * 2**30:
+                    elif min(free_disk, free_scratch) < args.min_free_gib * 2**30:
                         abort = "disk floor"
                     elif memory < args.min_available_gib * 2**30 or rss > args.max_rss_gib * 2**30:
                         abort = "memory limit"
@@ -172,7 +202,9 @@ def run(args):
                     time.sleep(.5)
         summary = {"mode": args.mode, "exit_code": process.returncode,
                    "aborted": abort, "peak_tree_rss_bytes": peak_rss,
-                   "wall_seconds": time.monotonic() - started}
+                   "wall_seconds": time.monotonic() - started,
+                   "wall_definition": "Simulator process and ASTRA child; excludes manifest preparation, artifact counting and input cleanup",
+                   "expected_requests": expected_requests}
         if (result / "time.json").exists():
             last = (result / "time.json").read_text().strip().splitlines()[-1]
             try:
@@ -193,13 +225,28 @@ def run(args):
         if (result / "load.json").exists():
             load = json.loads((result / "load.json").read_text())
             summary["load"] = {k: v for k, v in load.items() if k not in ("bins", "batch_size_histogram")}
+        # Count retained artifacts after timing, then remove only this UUID's
+        # directory. All modes use the same retention policy and filesystem.
+        measure_start = time.monotonic()
+        et_files = et_bytes = 0
+        if scratch.is_dir():
+            for directory, _, names in os.walk(scratch):
+                for name in names:
+                    if name.endswith(".et"):
+                        et_files += 1
+                        et_bytes += (Path(directory) / name).stat().st_size
+        summary["retained_et_files"] = et_files
+        summary["retained_et_bytes"] = et_bytes
+        summary["artifact_measurement_seconds"] = time.monotonic() - measure_start
+        cleanup_start = time.monotonic()
+        if scratch.is_dir() and scratch.parent == scratch_parent and scratch.name == run_id:
+            shutil.rmtree(scratch)
+        summary["input_cleanup_seconds"] = time.monotonic() - cleanup_start
         (result / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary, indent=2), flush=True)
-        if process.returncode != 0 or abort:
-            # Only this invocation's exact UUID directory, never a shared tree.
-            scratch = REPO / "astra-sim/inputs/runs" / run_id
-            if scratch.is_dir():
-                shutil.rmtree(scratch)
+        if (process.returncode != 0 or abort or
+                summary.get("completed_requests") != expected_requests or
+                summary.get("clock_ns") is None):
             raise RuntimeError(f"run failed; inspect {result}")
 
 
@@ -209,8 +256,13 @@ def compare(args):
     for row in rows:
         if row["exit_code"] != 0 or row["aborted"] or row.get("clock_ns") is None:
             raise ValueError("comparison includes an incomplete run")
+        if row.get("expected_requests") is not None and row["completed_requests"] != row["expected_requests"]:
+            raise ValueError("completed call count does not match the workload")
     for key in ("config_sha256", "dataset_sha256", "source_hashes"):
         if any(m[key] != manifests[0][key] for m in manifests[1:]):
+            raise ValueError(f"comparison inputs differ: {key}")
+    for key in ("binary_sha256", "profile_sha256", "scratch_parent", "measurement_window_seconds"):
+        if any(m.get(key) != manifests[0].get(key) for m in manifests[1:]):
             raise ValueError(f"comparison inputs differ: {key}")
     for key in ("requests_sha256", "clock_ns", "completed_requests"):
         if any(row[key] != rows[0][key] for row in rows[1:]):
@@ -245,6 +297,8 @@ def main():
     runner.add_argument("--min-free-gib", type=float, default=16)
     runner.add_argument("--min-available-gib", type=float, default=8)
     runner.add_argument("--max-rss-gib", type=float, default=48)
+    runner.add_argument("--scratch-parent", type=Path,
+                        help="parent for isolated per-run inputs; use the same filesystem for matched runs")
     runner.add_argument("--verify", action="store_true")
     runner.set_defaults(function=run)
     comparison = sub.add_parser("compare")
