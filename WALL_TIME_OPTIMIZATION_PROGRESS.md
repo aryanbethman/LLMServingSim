@@ -286,3 +286,111 @@ Shared-template transport per run:
 - **Filesystem**: legacy wrote 39.8 GB at 256 NPUs, leaving 18.2 GiB free on this shared host, and holds one open ET per NPU for the whole run (277 FDs). Shared wrote 4.8 MB and holds 21 FDs; its 213-FD peak is a startup transient while the 64 instance configs are written (21 for 243 of 250 samples).
 - **Memory** is slightly lower in shared mode at every scale (560 vs 642 MiB at 256 NPUs), with the ASTRA-Sim template cache bounded at 128 entries (high water 132-144).
 - 256-NPU legacy finished here, but it came within 6 GiB of the disk floor. Nothing guarantees that on a fuller disk; the run needs ~40 GB of scratch, and the next size up would not fit.
+
+## Round 4: agentic workloads and the value overlay (2026-10-21/22)
+
+### Setup
+
+- Workload: 50 SWE-bench sessions from `python -m workloads.generators swebench` (the Qwen team's OpenHands + Qwen3-Coder-30B-A3B run), each capped at 20 LLM calls, 0.2 sessions/s, seed 42: `outputs/swe-bench-qwen3-coder-30b-a3b-50-sps0.2-max20.jsonl`, 1,000 calls. The same file at every size.
+- Model and hardware: Qwen3-30B-A3B on RTX PRO 6000, the only profiled Qwen MoE. Cluster configs are copies of `configs/cluster/single_node_moe_single_instance.json`'s instance (96 GB, 1,597 GB/s, `link_bw` 16, `ep_size` = `tp_size`), built by `~/hipc-results/qwen-swe/make_configs.py` into `~/hipc-results/qwen-swe/configs/qwen3_30b_rtxpro6000_tp{2,4}_{16,72,128,256}.json`. They live outside the repo and are passed as `../hipc-results/...`, because the simulator prefixes `--cluster-config` with `../`.
+- TP4 profile: only TP1 and TP2 are measured, so `profiler/perf/RTXPRO6000/Qwen/Qwen3-30B-A3B-Instruct-2507/bf16-tp4proj/` holds the measured TP1/TP2 files unchanged plus a projected `tp4/` (`~/hipc-results/qwen-swe/project_tp4.py`). Each dense, per-sequence and attention row is the TP2 time divided by that row's TP1→TP2 speedup, clamped to 1-2x, the `project-tp8` rule one step lower. There is no third measured degree, so there is no back-test and no bias correction. Skew data and alphas are copied from TP2; MoE always reads `tp1/moe.csv`. Selected with `--profile-variant bf16-tp4proj`; `meta.yaml` labels it a projection. The folder is untracked.
+- Driver: `~/hipc-results/qwen-swe/launch_qwen.sh` around `run_pair.sh`. `TP=2|4`, `CACHE=big|default`, `VO=1` adds `--template-value-overlay` to the shared-template run only (`run_pair.sh` now passes `SHARED_EXTRA` to shared runs). Results in `~/hipc-results/qwen-swe20-*`.
+
+### Why shared-template lost on agentic sessions
+
+16 GPUs, one run at a time on an idle host, every pair with an identical `requests.csv` and clock:
+
+| Setup | Legacy | Shared, default caches | Shared, unbounded ASTRA cache + 4 GiB bindings |
+| --- | ---: | ---: | ---: |
+| TP2 (8 copies) | 16:15 | 22:16 (+37%) | 23:52 (+47%), 11,372 MiB tree RSS |
+| TP4 (4 copies) | 16:15 | 21:22 (+31%) | 46:35 (+187%), 26,560 MiB tree RSS |
+
+With the default caches, 4.7% (TP2) and 3.7% (TP4) of batches were served from the bindings cache (`hit / (hit + miss)`; `relocated_hit` is a subset of `hit`), against 58.5% for ShareGPT-750 at the same size (`final-16tp4def-shared-20260920`). A template held every node's `duration_micros` and its `comm_size`/`tensor_size` attributes. Agent prompts grow with every call, so decode batches with the same structure had slightly different attention times and sizes and never matched. Python rebuilt and hashed nearly every batch, and ASTRA-Sim decoded a new template for nearly every batch.
+
+Unbounded caches raised that to 78.5% at TP2 and 13.5% at TP4, but made ASTRA-Sim slower the more templates it held. The likely reason, not fixed: `update_template_cache_high_water()` in `astra-sim/common/WorkloadPayload.cc` calls `cached_node_count()`, which walks the whole cache, on every bundle and for every NPU that parses it. With the value overlay there are only 4 templates, so this no longer matters for these runs.
+
+### `--template-value-overlay`
+
+Opt-in, and it requires `--execution-template-mode shared-template`. With it off, templates, bundles, wire bytes and every code path are unchanged.
+
+- Python, `serving/core/execution_templates.py`: in values mode each node's `duration_micros` and its `comm_size`/`tensor_size` values are zeroed in the template (the attributes stay in place), and the numbers move into a per-rank list of (duration, comm_size, tensor_size), one entry per node. The bundle gains `"values": [{"d": [...], "c": [...], "t": [...]}, ...]`, one entry per distinct list, and each binding names its list with `"values": <index>`. The ranks of a TP group share one list.
+- Converter: `convert_rows_to_template_bundle(..., template_values=True)` and `convert_to_template_bundle(..., template_values=True)` in the chakra submodule.
+- Bindings cache, `serving/core/graph_generator.py`: values are not rank-specific, so they do not stop a TP binding from relocating. Cached entries carry the values JSON, and `Controller.write_template_bindings` appends it, so a hit writes the same line a fresh bundle would.
+- ASTRA-Sim, `astra-sim/common/WorkloadPayload.{hh,cc}`: each value set is decoded once per bundle into `TemplateNodeValues` and attached to `RankEtTemplate::values`.
+- Feeder, chakra `src/feeder/et_feeder.cpp` and `et_feeder_node.{h,cpp}`: after an `ETFeederNode` is built from a shared template node, `apply_template_values` sets its runtime, comm size and tensor size. Those are the only places ASTRA-Sim reads the numbers, so template nodes are still shared, not copied.
+- The stats JSON from `--execution-template-stats-output` records `template_value_overlay`.
+
+### Value fast path (on whenever the overlay is on)
+
+With the overlay on, Python was the remaining cost: it still ran the converter for every batch, creating every node for every rank, and then hashing it. `serving/core/template_fastpath.py` skips that when it can.
+
+Apart from four zero tests, the converter copies its numbers straight from the trace rows: compute time, the input/weight/output memory sizes and the comm size. The four tests are: a zero compute time drops the compute node, a zero weight size drops the weight load, a zero comm size drops the expert all-to-all, and a zero `v_proj` comm size drops the KV send. Everything else it emits follows from the rows' structure: layer names, memory locations, comm types, expert markers, the header, NPU count and offset, local offloading. That structure plus the zero/non-zero pattern is a batch's *shape*. Two batches of one shape produce the same templates and bindings.
+
+- First batch of a shape: converted normally. The rows are also converted once with every non-zero number replaced by a tag naming its (row, column), which shows where each value slot comes from. The map is kept only if it reproduces the real conversion exactly: same templates, bindings and per-rank values.
+- Later batches of the shape: the value sets are filled straight from the rows, with ranks sharing sets exactly as a fresh conversion would group them. Cached templates are sent again if ASTRA-Sim has released them.
+- Not used for PIM rows, whose tensor size is the sum of two columns, or for EVENT traces. Those always go through the converter.
+- `LLMSS_VALUE_FASTPATH=0` turns it off (every batch is converted, for ablations). `LLMSS_VERIFY_VALUE_FASTPATH=1` also converts every fast-path batch and raises on any difference. `LLMSS_VALUE_FASTPATH_ENTRIES` bounds the shapes kept (default 256). Counters appear under `graph_cache.value_fastpath` in the stats JSON.
+
+### Correctness
+
+- Unit tests: `tests/test_template_value_overlay.py` checks that values-mode split and materialise is byte-exact, that batches differing only in numbers share a template, and that ranks rebuilt from a wire bundle equal legacy payloads for TP and PP, plus the bindings-cache relocation and the controller line. `tests/test_template_value_fastpath.py` checks that the fast path equals a full conversion for TP, PP with rank overlays, prefill KV sends and MoE expert markers, along with shape changes, offsets, PIM fallback, the entry bound, generate_graph wiring and verify mode.
+- `serving/validate.sh --clocks-only` on the rebuilt binary: 58/58 legacy scenarios match their baselines. The 46 scenarios without `dp_group`, run with `--execution-template-mode shared-template --compact-controller-protocol --template-cache-max-entries 128 --template-value-overlay`, match 46/46 before the fast path, and 46/46 with the fast path and `LLMSS_VERIFY_VALUE_FASTPATH=1`.
+- A 3-session agentic run at 16 GPUs with `LLMSS_VERIFY_VALUE_FASTPATH=1`: all 8,002 fast-path batches were byte-identical to a fresh conversion, and the CSV was identical to legacy's (`799d1197…`).
+- Every agentic run below has `requests.csv` md5 `f207cb235f70` and clock 374,980,183,658 ns, the same as all earlier TP4 runs.
+
+### Results, 16 GPUs, Qwen TP4 (4 copies), default caches
+
+| Mode | Wall | Python CPU | ASTRA-Sim CPU | Templates | Wire |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Legacy (2026-10-21) | 16:15 | 520 s | 435 s | — | — |
+| Shared | 21:22 | 733 s | 533 s | 180,836 | 7.5 GB |
+| Shared + value overlay, fast path off | 19:31 | 768 s | 387 s | 4 | 0.85 GB |
+| Shared + value overlay + fast path | **8:33.60** (−48%) | 120 s | 382 s | 4 | 0.85 GB |
+| Legacy (2026-10-22 rerun) | 16:27.44 | 522 s | 444 s | — | — |
+
+The overlay fixed the ASTRA-Sim side: 4 templates for the whole run, template decode and binding parse together under 2 s, and ASTRA-Sim CPU below legacy's. Without the fast path, Python was the whole remaining gap. The fast path closed it: of the run's 74,573 batches (each reaches ASTRA-Sim twice, hence 149,146 bundles), 70,502 were filled straight from their rows, 4,067 were exact repeats served by the bindings cache, and 4 learned a shape (one per instance offset). None fell back, and Python CPU fell from 522 s in legacy to 120 s. Same CSV and clock as legacy. Against legacy the run is 1.92x faster.
+
+### Scaling, Qwen TP4, 2026-10-22
+
+Same trace, one run at a time, shared-template with `--template-value-overlay` (fast path on, default caches) against legacy. Configs `~/hipc-results/qwen-swe/configs/qwen3_30b_rtxpro6000_tp4_<n>.json`, results `~/hipc-results/qwen-swe20-tp4-<n>-defcache-vofp-{shared,legacy}-20261022/`.
+
+| GPUs (copies) | Mode | Wall | Python CPU | ASTRA-Sim CPU | Tree RSS | FS output | CSV / clock |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 (4) | legacy | 16:27.44 | 522 s | 444 s | 790 MiB | 9.9 GB | `f207cb235f70` |
+| 16 (4) | optimized | **8:33.60** (1.92x) | 120 s | 382 s | 730 MiB | 2.4 MB | identical |
+| 72 (18) | legacy | 37:02.04 | 1,145 s | 1,142 s | 1,147 MiB | 23.5 GB | `a929bf976657` |
+| 72 (18) | optimized | **19:28.10** (1.90x) | 277 s | 902 s | 1,084 MiB | 4.0 MB | identical |
+| 128 (32) | legacy | 43:30.12 | 1,345 s | 1,424 s | 1,485 MiB | 29.9 GB | `a396b6a5d903` |
+| 128 (32) | optimized | **23:18.45** (1.87x) | 420 s | 1,003 s | 1,412 MiB | 5.4 MB | identical |
+| 256 (64) | legacy | 59:08.06 | 1,813 s | 2,101 s | 2,207 MiB | 44.4 GB | `bcd8306440b7` |
+| 256 (64) | optimized | **33:17.18** (1.78x) | 758 s | 1,298 s | 2,167 MiB | 8.6 MB | identical |
+
+| GPUs | Bundles | Templates | Bindings cache hit / miss | Fast-path hits | Shapes learned | Fallbacks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 149,146 | 4 | 4,067 / 70,506 | 70,502 | 4 | 0 |
+| 72 | 291,084 | 4 | 32,171 / 113,371 | 113,353 | 18 | 0 |
+| 128 | 292,394 | 4 | 32,089 / 114,108 | 114,076 | 32 | 0 |
+| 256 | 293,272 | 4 | 32,412 / 114,224 | 114,160 | 64 | 0 |
+
+Every bindings-cache miss went through the fast path: misses = fast-path hits + shapes learned.
+
+The speedup stays between 1.78x and 1.92x. It narrows slightly with size because the sessions keep only about 8 requests in flight, so extra copies mostly idle, while Python's time per bundle grows with the number of copies in both modes (optimized: 0.80 ms at 16 GPUs, 2.58 ms at 256), most likely from scheduling across all of them. One shape is learned per copy: the shape key includes the NPU offset.
+
+### ShareGPT-750 with the flag, 2026-10-22
+
+`configs/cluster/baseline_scale_{16,256}.json` (Llama-3.1-70B, H100, TP4 copies), upstream defaults, shared-template with and without `--template-value-overlay`, one run at a time. Results in `~/hipc-results/sg750-{16,256}-{base,vofp}-shared-20261022/`. Legacy was not rerun; the 2026-09-20 legacy runs on the same configs produced the same CSVs.
+
+| GPUs | Mode | Wall | Python CPU | ASTRA-Sim CPU | Templates sent | Wire | Bindings hit / miss | Fast path | CSV / clock |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | legacy (2026-09-20) | 4:13.63 | 129 s | 121 s | — | — | — | — | `044f47d396a6` |
+| 16 | shared | 3:23.25 | 75 s | 127 s | 4,876 | 326 MB | 9,280 / 6,596 (58.5%) | — | identical |
+| 16 | shared + overlay | **2:01.20** (−40.4%) | 16 s | 104 s | 4 | 311 MB | 7,078 / 9,019 (44.0%) | 9,015 hits, 4 shapes | identical |
+| 256 | legacy (2026-09-20) | 1:20:14 | 1,833 s | 3,019 s | — | — | — | — | `1933d816f785` |
+| 256 | shared | 42:16.94 | 196 s | 2,344 s | 3,896 | 531 MB | 195,713 / 3,597 (98.2%) | — | identical |
+| 256 | shared + overlay | **39:45.61** (−6.0%) | 167 s | 2,222 s | 4 | 3,814 MB | 187,838 / 12,029 (94.0%) | 11,965 hits, 64 shapes | identical |
+
+The overlay helps ShareGPT most at 16 GPUs, where 41.5% of batches missed the bindings cache and each miss cost a full conversion. At 256 GPUs the bindings cache already served 98.2% of batches, so there was little conversion left to skip. Wire bytes rose 7x at 256 because every bundle now carries its value sets, while a cached binding without the overlay carried only rank overlays. It still finished 6% sooner. With the overlay the 16 MiB bindings cache fills (7,335 evictions at 16 GPUs, none without it), which lowers its hit rate; a larger `LLMSS_TEMPLATE_BINDINGS_CACHE_BYTES` has not been tried.
+
+### Where it is
+
+Branch `feature/template-value-overlay` in LLMServingSim, `astra-sim` and chakra, created from `migration/upstream-a4053bc`, not yet committed. The binaries from before the change are in `astra-sim/build/astra_analytical/build/bin.bak-pre-value-overlay/`.

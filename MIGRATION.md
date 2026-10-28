@@ -19,6 +19,56 @@ as upstream's own path. Results do not match the old fork, because upstream's
 scheduler and memory model changed. The migration branches are published but
 not merged into `main`; explicit DP groups only work in legacy mode.
 
+## Model support and workloads
+
+### Agentic workloads
+
+The simulator supports both conventional independent-request JSONL workloads
+and agentic sessions. An agentic JSONL line represents one session and contains
+an ordered `sub_requests` list. Each sub-request provides its input/output token
+counts and may provide `input_tok_ids`, `output_tok_ids`, and the
+`tool_duration_ns` to wait after that LLM call before releasing the next one.
+
+Only the first sub-request enters the router initially. When it completes, the
+router adds its tool duration to the completion time and releases the next
+sub-request. The rest remain deferred, so the simulator cannot exit in the
+middle of a session. This models an agent loop such as LLM -> test/search/tool
+-> LLM without attempting to model the tool itself. Token IDs matter when
+prefix caching is enabled: later prompts include earlier turns, and including
+both input and output IDs exposes that cross-turn reuse. The bundled
+`workloads/swe-bench-qwen3-30b-a3b-50-sps0.2.jsonl` is the concrete SWE-bench
+example; `serving/validate.sh` exercises both a single-instance and a DP+EP MoE
+agentic case.
+
+### Architectures versus the 405B profile
+
+Upstream's normal workflow for a genuinely new Hugging Face `model_type` is to
+add `profiler/models/<model_type>.yaml`. The YAML maps the new model's vLLM
+classes to canonical operations and specifies their per-iteration execution
+order. `profile.sh` then runs vLLM/CUDA on the selected target GPU to measure
+those operations into the performance CSVs. Unusual structures such as
+sliding-window attention or multi-latent attention may additionally require
+trace-generator and memory-model code. This is the right route when a model
+family has a new block structure and target hardware is available.
+
+The 405B work did not add an architecture in that sense. Llama-3.1-405B has
+`model_type: llama` and the same Llama-3 decoder-block structure already
+described by `profiler/models/llama.yaml`; that catalog deliberately covers 8B,
+70B, and 405B. We added the 405B HF/cluster configuration and generated
+nominal, low, and high H100 performance bundles with
+`profiler/v0/profile_projection.py`, calibrated from the measured 70B H100
+profile. At runtime the existing Llama YAML plus the 405B dimensions and chosen
+profile bundle generates the execution trace.
+
+This projection path requires no target 405B hardware, which made it practical
+for the migration. It is not a replacement for direct profiling: it is more
+appropriate than duplicating an identical architecture YAML, but less faithful
+than running 405B itself on H100. The bundles are therefore labelled
+projections, not measurements; the nominal/low/high variants make that
+uncertainty explicit. Direct target-hardware profiling remains the preferred
+way to establish final physical fidelity when that hardware and model are
+available.
+
 ## What was ported
 
 | Fork feature | Where it lives now |

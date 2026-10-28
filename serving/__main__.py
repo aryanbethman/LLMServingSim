@@ -20,7 +20,8 @@ from serving.core.utils import *
 from serving.core.controller import *
 from serving.core.memory_model import *
 from serving.core.graph_generator import *
-from serving.core.graph_generator import CachedTemplateBindings, graph_cache_stats
+from serving.core.graph_generator import (CachedTemplateBindings, graph_cache_stats,
+                                          set_template_value_overlay)
 from serving.core.trace_generator import *
 from serving.core import trace_generator  # for module-level state setters
 from serving.core.tiered_memory import TopologyAwareMemory
@@ -385,6 +386,11 @@ def main():
                         help='bound the structural templates ASTRA-Sim keeps live '
                         '(0 = unbounded). Only meaningful with '
                         '--execution-template-mode=shared-template')
+    parser.add_argument('--template-value-overlay', action='store_true',
+                        help='with --execution-template-mode=shared-template, keep compute '
+                        'durations and comm/tensor sizes out of the structural template and '
+                        'send them per batch, so batches that differ only in token counts '
+                        'share one template. Results are unchanged; off by default')
     parser.add_argument('--profile-variant', type=str, default=None,
                         help='pin profile lookups to perf/<hw>/<model>/<VARIANT>/ instead of '
                         'deriving the folder from dtype. Use it to select an uncertainty arm of '
@@ -501,6 +507,11 @@ def main():
     if args.template_cache_max_entries and args.execution_template_mode != 'shared-template':
         parser.error('--template-cache-max-entries requires '
                      '--execution-template-mode=shared-template')
+    if args.template_value_overlay:
+        if args.execution_template_mode != 'shared-template':
+            parser.error('--template-value-overlay requires '
+                         '--execution-template-mode=shared-template')
+        set_template_value_overlay(True)
     
     args.run_id = resolve_run_id(args.run_id)
     run_paths = build_run_paths(astra_sim, args.run_id, args.inputs_root)
@@ -1457,6 +1468,7 @@ def main():
     if args.execution_template_stats_output is not None:
         stats = controller.get_template_transport_stats()
         stats["mode"] = args.execution_template_mode
+        stats["template_value_overlay"] = args.template_value_overlay
         stats["graph_cache"] = graph_cache_stats()
         _write_json_report(args.execution_template_stats_output, stats,
                            "execution-template transport metrics")

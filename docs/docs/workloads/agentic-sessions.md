@@ -100,10 +100,56 @@ python -m serving \
 `--num-reqs 1` means one *session* (which expands to 8-15
 sub-requests). Bump it for longer runs.
 
+## Generating SWE-bench sessions
+
+`python -m workloads.generators swebench` builds larger SWE-bench
+workloads from published agent runs, the way the ShareGPT generator
+builds flat ones from ShareGPT conversations:
+
+```bash
+python -m workloads.generators swebench \
+    --model Qwen/Qwen3-Coder-30B-A3B-Instruct \
+    --num-sessions 50 --sps 0.2 --seed 42 \
+    --output workloads/swe-bench-qwen3-coder-30b-a3b-50-sps0.2.jsonl
+```
+
+The source is an OpenHands run from the public `swe-bench-submissions`
+S3 bucket, one `trajectory.json` per task, downloaded once into
+`--cache-dir` (default `~/.cache/llmservingsim/swebench`). `--source`
+takes another run prefix in that bucket or a local directory with the
+same `<instance_id>/trajectory.json` layout. The default is the Qwen
+team's OpenHands + Qwen3-Coder-30B-A3B-Instruct run on SWE-bench
+Verified: 500 tasks, a median of 59 LLM calls per session, prompts up
+to 122k tokens, and a median tool wait of 0.62 s.
+
+What each field comes from:
+
+| Field | Source |
+| --- | --- |
+| `input_toks`, `output_toks` | The serving engine's `usage` for that LLM call |
+| `tool_duration_ns` | Time from the model's response to the last event before the next call |
+| `input_tok_ids` | Call 0: the real system prompt, tool schemas and task rendered with `--model`'s chat template. Later calls: the previous prompt and output, then fresh ids for the tool result |
+| `output_tok_ids` | Fresh ids, unique to the session |
+
+Because the hashes are chained, only exact prefixes matter. Every
+session shares the system-prompt prefix, and turn N+1 hits on turn N's
+prompt and output, the same structure the recorded run had. Use the
+source run's model for `--model`, so the first prompt renders to the
+recorded length.
+
+`--num-sessions` larger than the run's task count starts another pass
+over the tasks as `run1`, `run2`, and so on. A rerun shares its task's
+first prompt and nothing after it. `--max-calls` and `--max-kv-toks`
+end sessions early.
+
+Every sub-request stores its full prompt ids, so file size grows with
+the square of session length: 50 sessions from the default run is
+about 0.6 GB, and all 500 is 6.3 GB. The router holds the whole file
+in memory.
+
 ## Building your own agentic workload
 
-There's no bundled generator for agentic format, chain extraction
-depends on your data source. The pattern:
+For other sources, chain extraction depends on your data. The pattern:
 
 1. **Extract sessions from your trace source.** For SWE-bench, that's
    one session per problem; for browser-agent traces, one session per

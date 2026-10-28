@@ -17,6 +17,12 @@ The round trip is exact: `materialise_rank_et(*split_rank_et(payload))`
 reproduces the input bytes. `TemplateBundleCollector` skips the round trip
 entirely by sitting in the converter's output path -- see
 `LLMConverter.convert_to_template_bundle`.
+
+With ``values_mode`` (``--template-value-overlay``) the per-node numbers that
+change with token counts -- compute ``duration_micros`` and the
+``comm_size``/``tensor_size`` attributes -- are zeroed in the template and
+carried per batch instead, so batches that differ only in those numbers share
+one template. Without it the template and the wire format are unchanged.
 """
 
 from __future__ import annotations
@@ -33,6 +39,9 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 _RANK_ATTRIBUTES = {"comm_src", "comm_dst", "comm_tag"}
 _RANK_NAME = re.compile(r"^(COMM_(?:SEND|RECV)_NODE_.*)_\d+_\d+$")
+# Attributes whose value moves to the per-batch value overlay, in the order a
+# node's values are stored after its duration.
+_VALUE_ATTRIBUTES = ("comm_size", "tensor_size")
 
 
 def _load_chakra_types():
@@ -125,6 +134,8 @@ _EMPTY_NODE_OVERLAY = NodeOverlay(None, ())
 class RankOverlay:
     metadata_payload: bytes
     nodes: Tuple[NodeOverlay, ...]
+    # One (duration_micros, comm_size, tensor_size) per node in values mode.
+    values: Optional[Tuple[Tuple[int, int, int], ...]] = None
 
 
 @dataclass(frozen=True)
@@ -161,10 +172,11 @@ class TemplateCaptureStream:
     rank payload.
     """
 
-    def __init__(self):
+    def __init__(self, values_mode: bool = False):
         self._metadata_payload: Optional[bytes] = None
         self._node_payloads: List[bytes] = []
         self._overlays: List[NodeOverlay] = []
+        self._values: Optional[List[Tuple[int, int, int]]] = [] if values_mode else None
 
     def __enter__(self):
         return self
@@ -174,9 +186,7 @@ class TemplateCaptureStream:
 
     def write_message(self, message) -> None:
         if message.__class__ is Node:
-            node_payload, overlay = _normalise_node(message)
-            self._node_payloads.append(node_payload)
-            self._overlays.append(overlay)
+            self._append_node(message)
             return
         if isinstance(message, GlobalMetadata):
             if self._metadata_payload is not None:
@@ -185,7 +195,19 @@ class TemplateCaptureStream:
             return
         if not isinstance(message, Node):
             raise TypeError(f"Unsupported Chakra ET message: {type(message)!r}")
-        node_payload, overlay = _normalise_node(message)
+        self._append_node(message)
+
+    # Normalises one node, moving its values aside first in values mode. Called by: write_message. Calls: _take_values, _normalise_node, _restore_values.
+    def _append_node(self, node) -> None:
+        if self._values is None:
+            node_payload, overlay = _normalise_node(node)
+        else:
+            values, holders = _take_values(node)
+            try:
+                node_payload, overlay = _normalise_node(node)
+            finally:
+                _restore_values(node, values, holders)
+            self._values.append(values)
         self._node_payloads.append(node_payload)
         self._overlays.append(overlay)
 
@@ -197,25 +219,27 @@ class TemplateCaptureStream:
             template_id=sha256(template_bytes).hexdigest(),
             node_payloads=tuple(self._node_payloads),
         )
-        return template, RankOverlay(self._metadata_payload, tuple(self._overlays))
+        values = None if self._values is None else tuple(self._values)
+        return template, RankOverlay(self._metadata_payload, tuple(self._overlays), values)
 
 
 class TemplateBundleCollector:
     """Build ASTRA's shared-template bundle directly from converter messages."""
 
-    def __init__(self, known_template_ids: Optional[set[str]] = None):
+    def __init__(self, known_template_ids: Optional[set[str]] = None, values_mode: bool = False):
         # Preserve a caller-provided empty set by reference.  Using ``or`` here
         # substitutes a new set during the first batch and breaks the intended
         # long-lived controller cache relationship.
         self._known_template_ids = (
             set() if known_template_ids is None else known_template_ids
         )
+        self._values_mode = values_mode
         self._streams: Dict[int, TemplateCaptureStream] = {}
 
     def open_rank(self, rank_id: int) -> TemplateCaptureStream:
         if rank_id in self._streams:
             raise ValueError(f"Duplicate ET stream for rank {rank_id}")
-        stream = TemplateCaptureStream()
+        stream = TemplateCaptureStream(self._values_mode)
         self._streams[rank_id] = stream
         return stream
 
@@ -224,6 +248,44 @@ class TemplateBundleCollector:
             rank_id: stream.split() for rank_id, stream in self._streams.items()
         }
         return _build_template_bundle_from_splits(splits, self._known_template_ids)
+
+
+# Zeroes a node's duration and value attributes in place and returns what was there. Called by: TemplateCaptureStream._append_node, split_rank_et.
+def _take_values(node) -> Tuple[Tuple[int, int, int], List[Tuple[object, str]]]:
+    duration = node.duration_micros
+    if duration:
+        node.duration_micros = 0
+    sizes = [0, 0]
+    holders: List[Tuple[object, str]] = []
+    for attribute in node.attr:
+        if attribute.name not in _VALUE_ATTRIBUTES:
+            continue
+        slot = _VALUE_ATTRIBUTES.index(attribute.name)
+        if any(held.name == attribute.name for held, _ in holders):
+            raise ValueError(f"node {node.name!r} has more than one {attribute.name} attribute")
+        field = attribute.WhichOneof("value")
+        sizes[slot] = getattr(attribute, field)
+        setattr(attribute, field, 0)
+        holders.append((attribute, field))
+    return (duration, sizes[0], sizes[1]), holders
+
+
+# Puts back what _take_values zeroed. Called by: TemplateCaptureStream._append_node, split_rank_et.
+def _restore_values(node, values: Tuple[int, int, int], holders: List[Tuple[object, str]]) -> None:
+    if values[0]:
+        node.duration_micros = values[0]
+    for attribute, field in holders:
+        setattr(attribute, field, values[1 + _VALUE_ATTRIBUTES.index(attribute.name)])
+
+
+# Writes one node's overlay values into a parsed template node. Called by: materialise_rank_et.
+def _apply_values(node, values: Tuple[int, int, int]) -> None:
+    if values[0]:
+        node.duration_micros = values[0]
+    for attribute in node.attr:
+        if attribute.name in _VALUE_ATTRIBUTES:
+            setattr(attribute, attribute.WhichOneof("value"),
+                    values[1 + _VALUE_ATTRIBUTES.index(attribute.name)])
 
 
 def _normalise_node(node) -> Tuple[bytes, NodeOverlay]:
@@ -272,7 +334,7 @@ def _normalise_node(node) -> Tuple[bytes, NodeOverlay]:
     )
 
 
-def split_rank_et(payload: bytes) -> Tuple[ExecutionTemplate, RankOverlay]:
+def split_rank_et(payload: bytes, values_mode: bool = False) -> Tuple[ExecutionTemplate, RankOverlay]:
     """Split one length-delimited Chakra ET stream into structure and rank overlay."""
     frames = list(_read_frames(payload))
     if not frames:
@@ -282,10 +344,14 @@ def split_rank_et(payload: bytes) -> Tuple[ExecutionTemplate, RankOverlay]:
     metadata.ParseFromString(frames[0])
     node_payloads: List[bytes] = []
     overlays: List[NodeOverlay] = []
+    values: Optional[List[Tuple[int, int, int]]] = [] if values_mode else None
 
     for frame_payload in frames[1:]:
         node = Node()
         node.ParseFromString(frame_payload)
+        if values is not None:
+            node_values, _ = _take_values(node)
+            values.append(node_values)
         normalised_payload, overlay = _normalise_node(node)
         node_payloads.append(normalised_payload)
         overlays.append(overlay)
@@ -295,18 +361,23 @@ def split_rank_et(payload: bytes) -> Tuple[ExecutionTemplate, RankOverlay]:
         template_id=sha256(template_bytes).hexdigest(),
         node_payloads=tuple(node_payloads),
     )
-    return template, RankOverlay(frames[0], tuple(overlays))
+    return template, RankOverlay(frames[0], tuple(overlays),
+                                 None if values is None else tuple(values))
 
 
 def materialise_rank_et(template: ExecutionTemplate, overlay: RankOverlay) -> bytes:
     """Reconstruct the original rank ET payload from a template and its overlay."""
     if len(template.node_payloads) != len(overlay.nodes):
         raise ValueError("Template node count does not match rank overlay")
+    if overlay.values is not None and len(overlay.values) != len(overlay.nodes):
+        raise ValueError("Template node count does not match value overlay")
 
     output = bytearray(_frame(overlay.metadata_payload))
-    for template_payload, node_overlay in zip(template.node_payloads, overlay.nodes):
+    for index, (template_payload, node_overlay) in enumerate(zip(template.node_payloads, overlay.nodes)):
         node = Node()
         node.ParseFromString(template_payload)
+        if overlay.values is not None:
+            _apply_values(node, overlay.values[index])
         if node_overlay.original_name is not None:
             node.name = node_overlay.original_name
         if node_overlay.rank_attributes:
@@ -375,6 +446,9 @@ def _build_template_bundle_from_splits(
     templates: Dict[str, List[str]] = {}
     bindings: Dict[str, object] = {}
     unique_template_ids = set()
+    # Ranks of one TP group carry identical values, so each distinct set is
+    # sent once and bindings refer to it by index.
+    value_sets: Dict[Tuple[Tuple[int, int, int], ...], int] = {}
 
     for rank_id, (template, overlay) in sorted(splits.items()):
         unique_template_ids.add(template.template_id)
@@ -395,13 +469,21 @@ def _build_template_bundle_from_splits(
                     for entry in node_overlay.rank_attributes
                 ],
             }
-        bindings[str(rank_id)] = {
+        binding = {
             "template_id": template.template_id,
             "metadata": base64.b64encode(overlay.metadata_payload).decode("ascii"),
             "nodes": nodes,
         }
+        if overlay.values is not None:
+            binding["values"] = value_sets.setdefault(overlay.values, len(value_sets))
+        bindings[str(rank_id)] = binding
 
     bundle = {"templates": templates, "bindings": bindings}
+    if value_sets:
+        bundle["values"] = [
+            {"d": [v[0] for v in values], "c": [v[1] for v in values], "t": [v[2] for v in values]}
+            for values in value_sets
+        ]
     stats = {
         "ranks": len(splits),
         "unique_templates": len(unique_template_ids),
@@ -413,6 +495,7 @@ def _build_template_bundle_from_splits(
 
 def build_template_bundle(
     payloads: Dict[int, bytes], known_template_ids: Optional[set[str]] = None,
+    values_mode: bool = False,
 ) -> Tuple[Dict[str, object], Dict[str, int]]:
     """Create a JSON-safe structural-template bundle from framed ET payloads.
 
@@ -421,6 +504,6 @@ def build_template_bundle(
     and reparsing those intermediate rank payloads.
     """
     splits = {
-        rank_id: split_rank_et(payload) for rank_id, payload in payloads.items()
+        rank_id: split_rank_et(payload, values_mode) for rank_id, payload in payloads.items()
     }
     return _build_template_bundle_from_splits(splits, known_template_ids)

@@ -12,11 +12,13 @@ workloads/
 ├── *.jsonl                    workload files (flat or agentic; see Format)
 ├── generators/                JSONL generators
 │   ├── __main__.py            python -m workloads.generators <name> ...
-│   └── sharegpt.py            multi-turn ShareGPT parser (tokenizer + optional vLLM)
+│   ├── sharegpt.py            multi-turn ShareGPT parser (tokenizer + optional vLLM)
+│   └── swebench.py            SWE-bench agent trajectories -> agentic sessions
 └── examples/                  ready-to-edit per-model invocation templates
     ├── gen-llama-3.1-8b.sh
     ├── gen-qwen3-30b-a3b.sh
-    └── gen-qwen3-32b.sh
+    ├── gen-qwen3-32b.sh
+    └── gen-swebench-qwen3-coder-30b-a3b.sh
 ```
 
 ## Format
@@ -94,11 +96,26 @@ executions.
 | --- | --- | --- | --- | --- | --- |
 | `swe-bench-qwen3-30b-a3b-50-sps0.2.jsonl` | 50 | 765 | 15.3 | 0.2 | Qwen3-30B-A3B |
 
-**There is no SWE-bench generator.** `workloads.generators` has exactly one
-subcommand, `sharegpt`; this file was produced out of band and committed. To
-build your own agentic workload, emit the JSONL directly — the schema is above,
-and the format reference is
-[Workloads → JSONL format](https://llmservingsim.ai/docs/workloads/jsonl-format).
+This file was produced out of band and committed. Larger SWE-bench workloads
+come from `python -m workloads.generators swebench`, which turns published
+OpenHands runs on SWE-bench Verified into sessions. The default source is the
+Qwen team's OpenHands + Qwen3-Coder-30B-A3B-Instruct run (500 tasks, median 59
+LLM calls per session, prompts up to 122k tokens), downloaded once from the
+public `swe-bench-submissions` S3 bucket into `~/.cache/llmservingsim/swebench`:
+
+```bash
+python -m workloads.generators swebench \
+    --model Qwen/Qwen3-Coder-30B-A3B-Instruct \
+    --num-sessions 50 --sps 0.2 --seed 42 \
+    --output workloads/swe-bench-qwen3-coder-30b-a3b-50-sps0.2.jsonl
+```
+
+Token counts and tool durations are the recorded ones. Token ids keep the
+recorded prefix structure: the real system prompt and task open every session,
+and each prompt extends the previous prompt and output. Every sub-request
+stores its full prompt ids, so size grows quickly: 50 sessions is about 0.6 GB
+and all 500 is 6.3 GB. `--max-calls` and `--max-kv-toks` cut sessions short.
+Asking for more sessions than tasks reruns tasks as `run1`, `run2`, ...
 
 ### Other
 | File | Description |

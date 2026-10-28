@@ -7,6 +7,7 @@ from time import time
 from .request import *
 from .logger import get_logger
 from .run_paths import input_path
+from .template_fastpath import ValueFastPath
 from .trace_generator import indexed_cols, write_trace
 
 logger = get_logger("GraphGenerator")
@@ -91,36 +92,76 @@ _BINDINGS_CACHE_STATS = {"hit": 0, "relocated_hit": 0, "miss": 0,
                          "relocatable_entries_stored": 0,
                          "fixed_entries_stored": 0}
 
+# --template-value-overlay: shared-template bundles carry durations and
+# comm/tensor sizes per batch instead of inside the template. Values are not
+# rank-specific, so they do not stop a TP binding from relocating.
+#
+# With it on, batches whose rows share a shape skip the converter: see
+# template_fastpath.py. LLMSS_VALUE_FASTPATH=0 turns that off (every batch is
+# converted), LLMSS_VERIFY_VALUE_FASTPATH=1 re-converts every fast-path batch
+# and fails on any difference, LLMSS_VALUE_FASTPATH_ENTRIES bounds the shapes
+# kept (default 256).
+_TEMPLATE_VALUES = False
+_VALUE_FASTPATH = None
+
+
+# Turns the value overlay, and its fast path, on or off for every later shared-template conversion. Called by: serving.__main__.main, tests.
+def set_template_value_overlay(enabled):
+    global _TEMPLATE_VALUES, _VALUE_FASTPATH
+    _TEMPLATE_VALUES = bool(enabled)
+    _VALUE_FASTPATH = None
+    if _TEMPLATE_VALUES and os.environ.get("LLMSS_VALUE_FASTPATH", "1") != "0":
+        _VALUE_FASTPATH = ValueFastPath(
+            verify=os.environ.get("LLMSS_VERIFY_VALUE_FASTPATH") == "1",
+            max_entries=int(os.environ.get("LLMSS_VALUE_FASTPATH_ENTRIES", 256)))
+
+
+# One shared-template conversion, through the value fast path when it is on. Called by: generate_graph. Calls: ValueFastPath.bundle, LLMConverter.convert_rows_to_template_bundle.
+def _shared_template_bundle(converter, trace, cols, num_npus, npu_offset,
+                            enable_local_offloading, known_template_ids):
+    def convert(rows, known):
+        return converter.convert_rows_to_template_bundle(
+            trace.header_line, rows, known_template_ids=known,
+            template_values=_TEMPLATE_VALUES)
+
+    if _VALUE_FASTPATH is None:
+        return convert(cols, known_template_ids)
+    known = set() if known_template_ids is None else known_template_ids
+    return _VALUE_FASTPATH.bundle(trace.header_line, cols, num_npus, npu_offset,
+                                  enable_local_offloading, known, convert)
+
 
 class CachedTemplateBindings:
     """A cache hit: rank bindings to send against templates ASTRA holds."""
 
-    __slots__ = ("template_ids", "bindings_json", "rank_count")
+    __slots__ = ("template_ids", "bindings_json", "rank_count", "values_json")
 
-    def __init__(self, template_ids, bindings_json, rank_count):
+    def __init__(self, template_ids, bindings_json, rank_count, values_json=None):
         self.template_ids = template_ids
         self.bindings_json = bindings_json
         self.rank_count = rank_count
+        self.values_json = values_json
 
 
 class _BindingsEntry:
     """Per-local-rank encoded bindings for one trace."""
 
-    __slots__ = ("template_ids", "ranks", "npu_offset", "relocatable", "nbytes")
+    __slots__ = ("template_ids", "ranks", "npu_offset", "relocatable", "values_json", "nbytes")
 
-    def __init__(self, template_ids, ranks, npu_offset, relocatable):
+    def __init__(self, template_ids, ranks, npu_offset, relocatable, values_json=None):
         self.template_ids = template_ids
         self.ranks = ranks              # ((local_rank, value_json), ...)
         self.npu_offset = npu_offset
         self.relocatable = relocatable
+        self.values_json = values_json
         self.nbytes = (sum(len(v) + 16 for _, v in ranks)
-                       + 64 * len(template_ids) + 128)
+                       + 64 * len(template_ids) + 128 + len(values_json or ""))
 
     def encode(self, npu_offset):
         body = ",".join('"%d":%s' % (npu_offset + local, value)
                         for local, value in self.ranks)
         return CachedTemplateBindings(self.template_ids, "{" + body + "}",
-                                      len(self.ranks))
+                                      len(self.ranks), self.values_json)
 
 
 def _bindings_entry(bundle, npu_offset):
@@ -131,7 +172,9 @@ def _bindings_entry(bundle, npu_offset):
         for rank, value in bindings.items()
     )
     relocatable = all(not value["nodes"] for value in bindings.values())
-    return _BindingsEntry(template_ids, ranks, npu_offset, relocatable)
+    values_json = (json.dumps(bundle["values"], separators=(",", ":"))
+                   if "values" in bundle else None)
+    return _BindingsEntry(template_ids, ranks, npu_offset, relocatable, values_json)
 
 
 def _bindings_cache_store(key, entry):
@@ -151,11 +194,14 @@ def _bindings_cache_store(key, entry):
 
 def graph_cache_stats():
     """Hit/miss counts for the converted-graph and template-bindings caches."""
-    return dict(_ET_CACHE_STATS, entries=len(_ET_CACHE), bytes=_ET_CACHE_BYTES,
-                template_bindings=dict(_BINDINGS_CACHE_STATS,
-                                       entries=len(_BINDINGS_CACHE),
-                                       bytes=_BINDINGS_CACHE_BYTES,
-                                       max_bytes=_BINDINGS_CACHE_MAX_BYTES))
+    stats = dict(_ET_CACHE_STATS, entries=len(_ET_CACHE), bytes=_ET_CACHE_BYTES,
+                 template_bindings=dict(_BINDINGS_CACHE_STATS,
+                                        entries=len(_BINDINGS_CACHE),
+                                        bytes=_BINDINGS_CACHE_BYTES,
+                                        max_bytes=_BINDINGS_CACHE_MAX_BYTES))
+    if _VALUE_FASTPATH is not None:
+        stats["value_fastpath"] = dict(_VALUE_FASTPATH.stats, entries=len(_VALUE_FASTPATH._entries))
+    return stats
 
 
 def _rows_digest(trace):
@@ -262,11 +308,10 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
         )
         if template_mode == "shared-template":
             if _BINDINGS_CACHE_MAX_BYTES <= 0:
-                return converter.convert_rows_to_template_bundle(
-                    trace.header_line, indexed_cols(trace.rows),
-                    known_template_ids=known_template_ids,
-                )
-            key = (_rows_digest(trace), num_npus, enable_local_offloading)
+                return _shared_template_bundle(
+                    converter, trace, indexed_cols(trace.rows), num_npus, npu_offset,
+                    enable_local_offloading, known_template_ids)
+            key = (_rows_digest(trace), num_npus, enable_local_offloading, _TEMPLATE_VALUES)
             entry = _BINDINGS_CACHE.get(key)
             if entry is None:
                 _BINDINGS_CACHE_STATS["miss"] += 1
@@ -285,18 +330,21 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
                     bundle, _ = converter.convert_rows_to_template_bundle(
                         trace.header_line, indexed_cols(trace.rows),
                         known_template_ids=known_template_ids,
+                        template_values=_TEMPLATE_VALUES,
                     )
                     fresh = json.dumps(bundle["bindings"], separators=(",", ":"))
-                    if bundle["templates"] or fresh != cached.bindings_json:
+                    fresh_values = (json.dumps(bundle["values"], separators=(",", ":"))
+                                    if "values" in bundle else None)
+                    if (bundle["templates"] or fresh != cached.bindings_json
+                            or fresh_values != cached.values_json):
                         raise RuntimeError(
                             "template-bindings cache hit differs from a "
                             "fresh conversion")
                     _BINDINGS_CACHE_STATS["verified"] += 1
                 return cached
-            result = converter.convert_rows_to_template_bundle(
-                trace.header_line, indexed_cols(trace.rows),
-                known_template_ids=known_template_ids,
-            )
+            result = _shared_template_bundle(
+                converter, trace, indexed_cols(trace.rows), num_npus, npu_offset,
+                enable_local_offloading, known_template_ids)
             fresh_entry = _bindings_entry(result[0], npu_offset)
             _BINDINGS_CACHE_STATS["relocatable_entries_stored" if fresh_entry.relocatable
                                   else "fixed_entries_stored"] += 1

@@ -184,7 +184,8 @@ class Controller():
         no new template definitions; the bindings JSON was encoded once,
         when the batch was first converted.
         """
-        encoded = '{"templates":{},"bindings":' + cached.bindings_json + '}'
+        values = ',"values":' + cached.values_json if cached.values_json else ''
+        encoded = '{"templates":{},"bindings":' + cached.bindings_json + values + '}'
         p.stdin.write("ET_TEMPLATE_BUNDLE " + encoded + "\n")
         p.stdin.flush()
         stats = self.template_transport_stats
