@@ -231,11 +231,15 @@ def run(args):
                    "wall_definition": "Simulator process and ASTRA child; excludes manifest preparation, artifact counting and input cleanup",
                    "expected_requests": expected_requests}
         if (result / "time.json").exists():
-            last = (result / "time.json").read_text().strip().splitlines()[-1]
-            try:
-                summary.update(json.loads(last))
-            except json.JSONDecodeError:
-                pass
+            # Killing the whole process group can terminate GNU time before
+            # it writes anything. An empty timing file must not prevent the
+            # failure record or this invocation's scratch cleanup.
+            lines = (result / "time.json").read_text().strip().splitlines()
+            if lines:
+                try:
+                    summary.update(json.loads(lines[-1]))
+                except json.JSONDecodeError:
+                    pass
         log = (result / "stdout.log").read_text()
         clock = re.search(r"Total clocks \(ns\):\s+(\d+)", log)
         summary["clock_ns"] = int(clock[1]) if clock else None
