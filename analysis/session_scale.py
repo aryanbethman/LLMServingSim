@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import random
 import shutil
 import signal
 import subprocess
@@ -25,7 +26,7 @@ import uuid
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from workloads.generators.replicate_sessions import file_sha256, run as replicate
+from workloads.generators.replicate_sessions import file_sha256, load_sessions, run as replicate
 
 MODES = {
     "legacy": ["--execution-template-mode", "legacy"],
@@ -39,6 +40,29 @@ MODES = {
 
 def git(*args, cwd=REPO):
     return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+
+def select_source(args):
+    """Choose whole chains before timing; never select by observed performance."""
+    metadata = args.output.with_suffix(args.output.suffix + ".selection.json")
+    if args.output.exists() or metadata.exists():
+        raise FileExistsError("refusing to overwrite selected source or provenance")
+    rows = load_sessions(args.source)
+    if not 0 < args.num_sessions <= len(rows):
+        raise ValueError("selection count must be between 1 and the source size")
+    random.Random(args.seed).shuffle(rows)
+    selected = rows[:args.num_sessions]
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("w") as handle:
+        for row in selected:
+            handle.write(json.dumps(row) + "\n")
+    metadata.write_text(json.dumps({
+        "source_sha256": file_sha256(args.source),
+        "output_sha256": file_sha256(args.output),
+        "selection_seed": args.seed,
+        "selected_session_ids": [r["session_id"] for r in selected],
+        "calls_per_session": [len(r["sub_requests"]) for r in selected],
+    }, indent=2) + "\n")
 
 
 def prepare(args):
@@ -132,6 +156,7 @@ def run(args):
         env["LLMSS_TEMPLATE_BINDINGS_CACHE_BYTES"] = str(16 * 1024 * 1024)
         env["LLMSS_VERIFY_VALUE_FASTPATH"] = "1" if args.verify else "0"
         env["LLMSS_VERIFY_TEMPLATE_BINDINGS_CACHE"] = "1" if args.verify else "0"
+        env["LLMSS_DISABLE_REPEAT_CACHES"] = "1" if args.disable_repeat_caches else "0"
         source_hashes = {str(p.relative_to(REPO)): file_sha256(p)
                          for prefix in ("serving", "analysis", "workloads/generators")
                          for p in (REPO / prefix).rglob("*.py")}
@@ -225,6 +250,8 @@ def run(args):
         if (result / "load.json").exists():
             load = json.loads((result / "load.json").read_text())
             summary["load"] = {k: v for k, v in load.items() if k not in ("bins", "batch_size_histogram")}
+            summary["load_sha256"] = file_sha256(result / "load.json")
+            summary["queue_samples_sha256"] = file_sha256(result / "load.queues.csv")
         # Count retained artifacts after timing, then remove only this UUID's
         # directory. All modes use the same retention policy and filesystem.
         measure_start = time.monotonic()
@@ -264,8 +291,8 @@ def compare(args):
     for key in ("binary_sha256", "profile_sha256", "scratch_parent", "measurement_window_seconds"):
         if any(m.get(key) != manifests[0].get(key) for m in manifests[1:]):
             raise ValueError(f"comparison inputs differ: {key}")
-    for key in ("requests_sha256", "clock_ns", "completed_requests"):
-        if any(row[key] != rows[0][key] for row in rows[1:]):
+    for key in ("requests_sha256", "clock_ns", "completed_requests", "load_sha256", "queue_samples_sha256"):
+        if any(row.get(key) != rows[0].get(key) for row in rows[1:]):
             raise ValueError(f"simulation results differ: {key}")
     print(f"MATCH: {rows[0]['completed_requests']} requests, {rows[0]['clock_ns']} ns")
     for path, row in zip(args.results, rows):
@@ -275,6 +302,12 @@ def compare(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    selection = sub.add_parser("select-source")
+    selection.add_argument("--source", type=Path, required=True)
+    selection.add_argument("--output", type=Path, required=True)
+    selection.add_argument("--num-sessions", type=int, required=True)
+    selection.add_argument("--seed", type=int, default=42)
+    selection.set_defaults(function=select_source)
     prep = sub.add_parser("prepare")
     prep.add_argument("--base-config", type=Path, required=True)
     prep.add_argument("--source", type=Path, required=True)
@@ -300,6 +333,8 @@ def main():
     runner.add_argument("--scratch-parent", type=Path,
                         help="parent for isolated per-run inputs; use the same filesystem for matched runs")
     runner.add_argument("--verify", action="store_true")
+    runner.add_argument("--disable-repeat-caches", action="store_true",
+                        help="bypass exact-repeat ET/bindings caches in every mode; keep structural fast-path caches")
     runner.set_defaults(function=run)
     comparison = sub.add_parser("compare")
     comparison.add_argument("results", type=Path, nargs="+")

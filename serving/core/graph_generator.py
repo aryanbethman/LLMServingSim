@@ -39,6 +39,7 @@ _ET_CACHE = OrderedDict()          # key -> [(basename, bytes), ...]
 _ET_CACHE_BYTES = 0
 _ET_CACHE_MAX_BYTES = 64 * 1024 * 1024
 _ET_CACHE_STATS = {"hit": 0, "miss": 0, "skipped": 0}
+_REPEAT_CACHES_ENABLED = os.environ.get("LLMSS_DISABLE_REPEAT_CACHES", "0") != "1"
 
 # Traces seen exactly once. A graph is only worth holding after it repeats:
 # most *real* batches produce a unique trace (3,482 distinct out of 4,405 on
@@ -204,6 +205,7 @@ def _bindings_cache_store(key, entry):
 def graph_cache_stats():
     """Hit/miss counts for the converted-graph and template-bindings caches."""
     stats = dict(_ET_CACHE_STATS, entries=len(_ET_CACHE), bytes=_ET_CACHE_BYTES,
+                 repeat_caches_enabled=_REPEAT_CACHES_ENABLED,
                  template_bindings=dict(_BINDINGS_CACHE_STATS,
                                         entries=len(_BINDINGS_CACHE),
                                         bytes=_BINDINGS_CACHE_BYTES,
@@ -319,7 +321,7 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
             None, None, num_npus, npu_offset, enable_local_offloading,
         )
         if template_mode == "shared-template":
-            if _BINDINGS_CACHE_MAX_BYTES <= 0:
+            if not _REPEAT_CACHES_ENABLED or _BINDINGS_CACHE_MAX_BYTES <= 0:
                 return _shared_template_bundle(
                     converter, trace, indexed_cols(trace.rows), num_npus, npu_offset,
                     enable_local_offloading, known_template_ids)
@@ -384,10 +386,10 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
     if save_trace_text:
         write_trace(trace)
 
-    cache_key = (_rows_digest(trace), num_npus, npu_offset,
-                 enable_local_offloading)
+    cache_key = ((_rows_digest(trace), num_npus, npu_offset,
+                  enable_local_offloading) if _REPEAT_CACHES_ENABLED else None)
 
-    cached = _ET_CACHE.get(cache_key)
+    cached = _ET_CACHE.get(cache_key) if _REPEAT_CACHES_ENABLED else None
     if cached is not None:
         _ET_CACHE.move_to_end(cache_key)
         _ET_CACHE_STATS["hit"] += 1
@@ -399,7 +401,7 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
         return
     _ET_CACHE_STATS["miss"] += 1
 
-    before = _et_names(workload_dir)
+    before = _et_names(workload_dir) if _REPEAT_CACHES_ENABLED else set()
 
     logger.debug("Converting graph: %s -> %s", trace_path, output_path,
                  extra={"node_id": node_id, "instance_id": instance_id})
@@ -418,5 +420,6 @@ def generate_graph(batch, hardware, num_npus, node_id=0, instance_id=0, npu_offs
             with open(f"{output_path}.{rank}.et", "wb") as handle:
                 handle.write(payload)
 
-    _cache_store(cache_key, _et_names(workload_dir) - before)
+    if _REPEAT_CACHES_ENABLED:
+        _cache_store(cache_key, _et_names(workload_dir) - before)
     return
