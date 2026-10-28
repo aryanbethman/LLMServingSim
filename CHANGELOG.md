@@ -6,6 +6,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
 ## [Unreleased]
 
 ### Added
+- Complete-session replication with deterministic arrivals, unique identities,
+  declared token-identity policy and checksum/provenance manifests.
+- Opt-in replica batch-occupancy and queue reports, an optimized legacy graph
+  cache, and a matched session-scale experiment runner with host resource limits.
+  See the session-scaling workload documentation for measurement definitions.
 - `python -m workloads.generators swebench` — agentic-session workloads from published
   OpenHands runs on SWE-bench, the counterpart of the `sharegpt` generator. Token counts
   and tool durations are the recorded ones; token ids keep the recorded prefix structure.
