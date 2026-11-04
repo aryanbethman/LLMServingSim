@@ -24,6 +24,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
   rate and daily profiles, and the matching generator flags.
   `analysis/tool_delay_audit.py` splits SWE-bench tool delays by tool and command.
   Findings are in the arrival-processes documentation.
+- `analysis/realized_arrivals.py` joins a simulation's per-request CSV to its
+  workload. It checks the closed-loop release of every call and reports the call
+  arrival process that results. It also gives the queuing, service and tool split
+  of call gaps, Little's-law load and per-replica balance. The arrival-processes
+  documentation records a seven-run experiment comparing session arrival
+  processes and tool delays.
 - Complete-session replication with deterministic arrivals, unique identities,
   declared token-identity policy and checksum/provenance manifests.
 - Opt-in replica batch-occupancy and queue reports, an optimized legacy graph

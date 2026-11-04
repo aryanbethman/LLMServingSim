@@ -289,3 +289,71 @@ land at 0.62 + 0.5k s. Tool time is 7.7% of recorded session time. The other
 92% is the gap from a tool result to the next LLM response, which the
 simulator models itself. Use `--tool-delay` to test a different harness, for
 example `--tool-delay scale --tool-delay-factor 0` for a zero-latency one.
+
+## Arrivals in simulation
+
+`analysis/realized_arrivals.py` joins a run's per-request CSV to the workload
+it ran. It reports the call arrival process the closed loop produced, next to
+the session starts that were drawn:
+
+```bash
+python analysis/realized_arrivals.py outputs/run/requests.csv outputs/run/sessions.jsonl \
+    --window-start 50 --window-end 250
+```
+
+It checks that every later call arrived at its predecessor's completion plus
+its tool delay. It splits each call-to-call gap into queuing, service and
+tool time. It reports load as time-averaged calls in the system and in
+service (Little's law over the window) and live sessions, alongside
+per-replica arrivals and latency percentiles.
+
+### Experiment
+
+The experiment ran 100 replicated SWE-bench sessions (20 calls each) at a mean
+rate of 0.4 sessions/s on 16 GPUs: 4 replicas of Qwen3-30B-A3B at TP4, using
+the projected `bf16-tp4proj` RTX PRO 6000 profile. Runs used `shared-fast`
+mode. The table measures over 50-250 s, which leaves out ramp-up and drain.
+Each variant has one seed; Poisson has two.
+
+| Variant | Session gap CV | Call gap CV | Call dispersion 1 s / 5 s | Calls in service per replica | Live sessions | Gap split queue / service / tool | TTFT p50 | Latency p50 / p99 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Poisson | 0.92 | 0.98 | 0.7 / 0.8 | 6.0 | 28 | 4 / 86 / 10 % | 0.12 s | 1.9 / 32.5 s |
+| Poisson, seed 43 | 1.10 | 0.99 | 0.8 / 0.8 | 7.9 | 36 | 4 / 86 / 10 % | 0.13 s | 2.2 / 33.6 s |
+| `gamma`, cv 3 | 4.43 | 2.31 | 3.0 / 11.4 | 6.1 | 28 | 4 / 86 / 10 % | 0.14 s | 2.4 / 28.0 s |
+| `mmpp` on/off (10 s / 50 s) | 5.60 | 2.71 | 4.3 / 17.5 | 2.7 | 13 | 4 / 87 / 9 % | 0.12 s | 2.1 / 21.9 s |
+| `pulse`, 10 every 25 s | 3.21 | 0.99 | 1.1 / 0.9 | 7.4 | 34 | 4 / 87 / 10 % | 0.14 s | 2.1 / 33.0 s |
+| Poisson, tool delay 0 | 0.92 | 0.92 | 0.7 / 1.2 | 5.7 | 24 | 3 / 97 / 0 % | 0.07 s | 1.7 / 28.3 s |
+| Poisson, tool delay lognormal 5 s | 0.92 | 1.12 | 1.3 / 2.1 | 3.5 | 54 | 1 / 25 / 74 % | 0.13 s | 1.7 / 20.2 s |
+
+What the runs show:
+
+1. **The closed loop is exact.** All 14,000 calls arrived at their
+   predecessor's completion plus the recorded tool delay.
+2. **Poisson sessions give Poisson calls.** With about 30 sessions live, the
+   superposed call stream has gap CV 1 and count dispersion slightly under 1.
+   Each session has at most one call outstanding, which regulates the stream
+   a little.
+3. **Burstiness passes through only on time scales longer than a session.**
+   Gamma and MMPP leave gaps of minutes between session bursts, longer than a
+   session's ~80 s lifetime, and the calls inherit them: CV 2.3-2.7,
+   dispersion growing with the window, lag-1 gap autocorrelation 0.4. Pulses
+   every 25 s overlap within a session lifetime, and differing service times
+   spread their calls apart after the first. Their calls are Poisson again.
+4. **Service dominates the gap between a session's calls** (86-97%) with
+   recorded or zero tool delays. A session's call rate is set by the simulated
+   latency, so the offered call stream depends on the configuration under
+   test. Tool delays of 5 s make tool time 74% of the gap. Live sessions
+   double (54 vs 28), but calls in service per replica fall from 6.0 to 3.5.
+5. **Busy fraction does not measure load here.** The load observer reported
+   0.92-1.0 busy for every run, while mean batch size ranged from 2.7 to 7.7.
+   Calls in service per replica separates the runs, and p99 latency follows
+   it more closely than the arrival process: 20-22 s at 3-3.5 calls in
+   service, 28-33 s at 6, 33-34 s at 7-8.
+6. **One seed is not enough to rank processes.** The two Poisson seeds
+   differ by 18% in call rate and 30% in calls in service. That is as much as
+   most differences between processes. The MMPP run started only 51 of its 100
+   sessions inside the window, and 0.19 sessions/s over the whole run,
+   against a specified 0.4.
+7. **Measure inside a window.** Over the whole run, even Poisson calls show
+   gap CV 3.9 and dispersion 14 at 10 s. That burstiness comes from ramp-up
+   and drain, not from the process.
