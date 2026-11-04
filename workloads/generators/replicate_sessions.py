@@ -5,6 +5,7 @@ relabels each repeated source corpus into a disjoint integer range. It keeps
 all prefix equalities within a copy, including cross-task system prefixes,
 without introducing cache reuse between independent copies of the corpus.
 ``preserve`` explicitly models repeated identical content instead.
+Session arrivals come from ``workloads.generators.arrivals``.
 """
 
 from __future__ import annotations
@@ -12,18 +13,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import random
 from pathlib import Path
+
+from workloads.generators.arrivals import add_arrival_args, arrival_times_ns, spec_from_args
 
 
 def register_args(parser):
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--num-sessions", type=int, required=True)
-    parser.add_argument("--sps", type=float, required=True)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--first-arrival-sec", type=float, default=0)
+    add_arrival_args(parser, "sessions")
     parser.add_argument("--token-policy", choices=("isolate-copies", "preserve"),
                         default="isolate-copies")
 
@@ -80,10 +81,9 @@ def file_sha256(path):
 
 
 def run(args):
-    if args.num_sessions <= 0 or not math.isfinite(args.sps) or args.sps <= 0:
-        raise ValueError("num-sessions and sps must be positive")
-    if not math.isfinite(args.first_arrival_sec) or args.first_arrival_sec < 0:
-        raise ValueError("first-arrival-sec must be finite and nonnegative")
+    if args.num_sessions <= 0:
+        raise ValueError("num-sessions must be positive")
+    arrival = spec_from_args(args, "sessions")
     if args.output.resolve() == args.source.resolve():
         raise ValueError("output must differ from source")
     manifest_path = args.output.with_suffix(args.output.suffix + ".manifest.json")
@@ -94,8 +94,7 @@ def run(args):
                       for field in ("input_tok_ids", "output_tok_ids")
                       for token in call.get(field, [])), default=0)
     order_rng = random.Random(args.seed)
-    arrival_rng = random.Random(args.seed + 1)
-    arrival = args.first_arrival_sec * 1e9
+    arrivals = arrival_times_ns(arrival, args.num_sessions)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     provenance = []
     digest = hashlib.sha256()
@@ -109,9 +108,8 @@ def run(args):
             for source_index in order:
                 if index >= args.num_sessions:
                     break
-                arrival += arrival_rng.expovariate(args.sps) * 1e9
                 row = replicated_session(sessions[source_index], index, copy_index,
-                                         round(arrival), stride, args.token_policy)
+                                         arrivals[index], stride, args.token_policy)
                 encoded = json.dumps(row, separators=(",", ":")) + "\n"
                 handle.write(encoded)
                 digest.update(encoded.encode())
@@ -121,12 +119,11 @@ def run(args):
                                    "copy_index": copy_index,
                                    "arrival_time_ns": row["arrival_time_ns"]})
                 index += 1
-    manifest = {"schema_version": 1, "source": str(args.source),
+    manifest = {"schema_version": 2, "source": str(args.source),
                 "source_sha256": file_sha256(args.source),
-                "output_sha256": digest.hexdigest(), "seed": args.seed, "sps": args.sps,
+                "output_sha256": digest.hexdigest(), "seed": args.seed, "arrival": arrival.to_dict(),
                 "num_sessions": args.num_sessions, "num_calls": total_calls,
                 "token_policy": args.token_policy, "token_namespace_stride": stride,
-                "first_arrival_sec": args.first_arrival_sec,
                 "fidelity": "Complete call chains, lengths, tool delays and within-copy prefix equality preserved; only IDs and session arrivals change.",
                 "sessions": provenance}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

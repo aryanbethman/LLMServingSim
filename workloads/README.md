@@ -12,6 +12,8 @@ workloads/
 ├── *.jsonl                    workload files (flat or agentic; see Format)
 ├── generators/                JSONL generators
 │   ├── __main__.py            python -m workloads.generators <name> ...
+│   ├── arrivals.py            arrival processes shared by every generator
+│   ├── replicate_sessions.py  reschedule recorded agent sessions at a new rate
 │   ├── sharegpt.py            multi-turn ShareGPT parser (tokenizer + optional vLLM)
 │   └── swebench.py            SWE-bench agent trajectories -> agentic sessions
 └── examples/                  ready-to-edit per-model invocation templates

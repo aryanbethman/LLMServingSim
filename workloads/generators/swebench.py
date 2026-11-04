@@ -35,7 +35,9 @@ sub-request::
 
 Sessions are sampled without replacement; asking for more sessions than
 the run has tasks starts another pass with the next ``run<k>`` index.
-Arrivals are Poisson at ``--sps`` sessions per second.
+Session arrivals come from ``workloads.generators.arrivals`` (Poisson at
+``--sps`` sessions per second unless ``--pulse``); the spec is recorded in
+``<output>.manifest.json``.
 
 LLM calls that OpenHands logged without ``tool_call_metadata`` (a handful of
 plain-text replies) carry no usage and are not emitted; their tokens show up
@@ -57,6 +59,7 @@ from pathlib import Path
 
 import numpy as np
 
+from workloads.generators.arrivals import add_arrival_args, arrival_times_ns, spec_from_args
 from workloads.generators.sharegpt import _load_tokenizer
 
 S3_BUCKET_URL = "https://swe-bench-submissions.s3.amazonaws.com"
@@ -89,15 +92,11 @@ def register_args(p: argparse.ArgumentParser) -> None:
                    dest="num_sessions",
                    help="Number of sessions to emit. More than the run's task "
                         "count repeats tasks as run1, run2, ...")
-    p.add_argument("--sps", type=float, required=True,
-                   help="Session arrival rate (sessions / sec). Poisson-distributed.")
     p.add_argument("--seed", type=int, default=42,
                    help="RNG seed for sampling, arrivals and token ids.")
     p.add_argument("--output", required=True,
                    help="Output JSONL path.")
-    p.add_argument("--first-arrival-sec", type=int, default=0,
-                   dest="first_arrival_sec",
-                   help="Offset (seconds) added to the first session's arrival.")
+    add_arrival_args(p, "sessions")
     p.add_argument("--max-calls", type=int, default=0,
                    dest="max_calls",
                    help="Keep at most this many LLM calls per session "
@@ -132,8 +131,7 @@ class Trajectory:
 def run(args: argparse.Namespace) -> int:
     if args.num_sessions <= 0:
         raise ValueError(f"--num-sessions must be positive, got {args.num_sessions}")
-    if args.sps <= 0:
-        raise ValueError(f"--sps must be positive, got {args.sps}")
+    arrival = spec_from_args(args, "sessions")
 
     source = Path(args.source).expanduser()
     if not source.is_dir():
@@ -150,7 +148,7 @@ def run(args: argparse.Namespace) -> int:
     tok = _load_tokenizer(args.model)
     rng = np.random.default_rng(args.seed)
     picks = sample_sessions(list(pool), args.num_sessions, rng)
-    arrivals = poisson_arrivals(len(picks), args.sps, args.first_arrival_sec * 1_000_000_000, rng)
+    arrivals = arrival_times_ns(arrival, len(picks))
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +167,9 @@ def run(args: argparse.Namespace) -> int:
             fout.write(json.dumps(session) + "\n")
             num_calls += len(traj.calls)
 
+    manifest = {"schema_version": 1, "generator": "swebench", "seed": args.seed,
+                "num_sessions": len(picks), "num_calls": num_calls, "arrival": arrival.to_dict()}
+    out_path.with_suffix(out_path.suffix + ".manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     size_gb = out_path.stat().st_size / 1e9
     print(f"Wrote {len(picks)} sessions ({num_calls} LLM calls, {size_gb:.2f} GB) -> {out_path}")
     return 0
@@ -281,12 +282,6 @@ def sample_sessions(instance_ids: list[str], num_sessions: int, rng: np.random.G
         picks.extend((pool[i], run_index) for i in order)
         run_index += 1
     return picks
-
-
-# Session arrival times (ns) of a Poisson process at sps. Called by: run.
-def poisson_arrivals(num: int, sps: float, first_arrival_ns: int, rng: np.random.Generator) -> list[int]:
-    gaps_ns = rng.exponential(scale=1e9 / sps, size=num)
-    return (first_arrival_ns + np.cumsum(gaps_ns)).astype(np.int64).tolist()
 
 
 # ---------------------------------------------------------------------------

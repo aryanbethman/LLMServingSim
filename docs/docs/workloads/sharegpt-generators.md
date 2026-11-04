@@ -63,9 +63,9 @@ the container, see
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--num-reqs` | (required) | How many requests / sessions to emit |
-| `--sps` | (required) | Sessions per simulated second (Poisson arrival) |
+| `--sps` | (required) | Requests per simulated second (Poisson arrival) |
 | `--seed` | `42` | RNG seed for sampling and arrival times |
-| `--first-arrival-sec` | `0` | Offset for the first request's arrival time |
+| `--first-arrival-sec` | `0` | Arrival time (seconds, fractional allowed) of the first request |
 
 ### Length filters
 
@@ -107,12 +107,19 @@ the API at the top of the hour" production phenomenon:
 | --- | --- | --- |
 | `--pulse` | off | Enable pulse mode |
 | `--pulse-n` | `10` | Number of requests per pulse |
-| `--pulse-delay-sec` | `60` | Time between pulses |
+| `--pulse-delay-sec` | `60` | Seconds from one pulse's start to the next's |
 | `--pulse-poisson` | off | Within each pulse, use Poisson arrivals at the configured `--sps` instead of all-at-once |
 
 Without `--pulse-poisson`, pulse arrivals all fire at the start of
 each pulse window, useful for testing the simulator's burst-handling
-behavior.
+behavior. With it, a pulse longer than the period overlaps the next one.
+
+Arrival times come from `workloads/generators/arrivals.py`, which the
+SWE-bench and session-replication generators share, so the same flags
+give the same times in every generator. The first request arrives at
+exactly `--first-arrival-sec`, and arrivals use their own random stream,
+so changing filters or sampling does not move them. The generator writes
+the arrival spec to `<output>.manifest.json`.
 
 ### vLLM free-generation mode (optional)
 

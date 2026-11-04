@@ -147,17 +147,6 @@ class SampleSessionsTests(unittest.TestCase):
             sb.sample_sessions([], 1, np.random.default_rng(0))
 
 
-class PoissonArrivalsTests(unittest.TestCase):
-    def test_arrivals_are_increasing_and_offset(self):
-        arrivals = sb.poisson_arrivals(50, sps=2.0, first_arrival_ns=5_000, rng=np.random.default_rng(0))
-        self.assertTrue(all(a < b for a, b in zip(arrivals, arrivals[1:])))
-        self.assertGreater(arrivals[0], 5_000)
-
-    def test_mean_gap_matches_rate(self):
-        arrivals = sb.poisson_arrivals(20_000, sps=4.0, first_arrival_ns=0, rng=np.random.default_rng(0))
-        self.assertAlmostEqual(arrivals[-1] / len(arrivals) / 1e9, 0.25, delta=0.01)
-
-
 class ParseS3ListingTests(unittest.TestCase):
     LISTING = (b'<?xml version="1.0" encoding="UTF-8"?>'
                b'<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'

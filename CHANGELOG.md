@@ -6,6 +6,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
 ## [Unreleased]
 
 ### Added
+- `workloads/generators/arrivals.py` — one arrival module for the `sharegpt`,
+  `swebench` and `replicate-sessions` generators, with Poisson and pulse processes,
+  shared flags (`--sps`, `--first-arrival-sec`, `--pulse*`) and the arrival spec
+  recorded in every output's `<output>.manifest.json`. Unit tests in
+  `tests/test_arrivals.py`.
 - Complete-session replication with deterministic arrivals, unique identities,
   declared token-identity policy and checksum/provenance manifests.
 - Opt-in replica batch-occupancy and queue reports, an optimized legacy graph
@@ -71,6 +76,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
   `get_kv(1) * num_npus` and works before any `MemoryModel` exists
 
 ### Changed
+- Generated arrival times differ from earlier files with the same seed. Every generator
+  now puts the first arrival at exactly `--first-arrival-sec`, which takes fractional
+  seconds. Arrivals come from a dedicated random stream, so they no longer depend on
+  content sampling. Times are rounded to the nearest ns rather than truncated. With
+  `--pulse --pulse-poisson`, `--pulse-delay-sec` is now measured from one burst's start
+  to the next's, not from the last arrival of the previous burst. The
+  `replicate-sessions` manifest is `schema_version` 2 and replaces `sps` /
+  `first_arrival_sec` with an `arrival` object.
 - The simulator is roughly **11x faster** with byte-identical results. The four
   `bench/examples/` workloads go 16m 40s to 1m 26s in total (per-example 5.2x to 24.6x)
   and the 19 `serving/run.sh` scenarios 18.95 min to 1.94 min, with every

@@ -213,6 +213,13 @@ The bundled SWE-bench file uses `sps=0.2`. With 50 sessions arriving
 over 250 simulator-seconds and each running ~60 seconds, you get
 ~12 sessions active concurrently, a realistic load.
 
+`--sps` sets only *session* starts. The `swebench` and
+`replicate-sessions` generators share the arrival flags of the ShareGPT
+generator (`--first-arrival-sec`, `--pulse`, `--pulse-n`,
+`--pulse-delay-sec`, `--pulse-poisson`) and record the arrival spec in
+`<output>.manifest.json`. Arrivals of later calls in a session are not
+drawn. The simulator sets them from when the previous call completes.
+
 ## Mixing flat + agentic in one file
 
 The loader handles per-line auto-detection, so you can have:

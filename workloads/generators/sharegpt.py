@@ -37,9 +37,11 @@ Two extra modes are also supported:
   IDs of fixed length (``--fix-input-length`` / ``--fix-output-length``)
   for controlled experiments. Skips dataset loading entirely.
 * ``--pulse`` — bursty arrivals: ``--pulse-n`` requests fire at the
-  same instant, then the offset jumps by ``--pulse-delay-sec`` seconds
-  before the next burst. ``--pulse-poisson`` keeps Poisson spacing
-  inside each burst.
+  same instant, one burst every ``--pulse-delay-sec`` seconds.
+  ``--pulse-poisson`` keeps Poisson spacing inside each burst.
+
+Arrival times come from ``workloads.generators.arrivals``; the spec is
+recorded in ``<output>.manifest.json``.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ import random
 from pathlib import Path
 from typing import Iterable, Iterator
 
-import numpy as np
+from workloads.generators.arrivals import add_arrival_args, arrival_times_ns, spec_from_args
 
 
 # ---------------------------------------------------------------------------
@@ -68,15 +70,12 @@ def register_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--num-reqs", type=int, required=True,
                    dest="num_reqs",
                    help="Number of requests to emit.")
-    p.add_argument("--sps", type=float, required=True,
-                   help="Arrival rate (requests / sec). Poisson-distributed.")
     p.add_argument("--seed", type=int, default=42,
                    help="RNG seed for sampling, shuffling, arrivals.")
     p.add_argument("--output", required=True,
                    help="Output JSONL path.")
-    p.add_argument("--first-arrival-sec", type=int, default=0,
-                   dest="first_arrival_sec",
-                   help="Offset (seconds) added to the first request's arrival.")
+    # Includes the pulse-mode flags.
+    add_arrival_args(p, "requests")
 
     # ---- Length filters ---------------------------------------------------
     p.add_argument("--min-input-toks", type=int, default=0,
@@ -115,21 +114,6 @@ def register_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--fix-output-length", type=int, default=512,
                    dest="fix_output_length",
                    help="(--fix-len) output length. Default 512.")
-
-    # ---- Pulse mode -------------------------------------------------------
-    p.add_argument("--pulse", action="store_true", default=False,
-                   help="Burst arrivals: --pulse-n requests fire instantly, "
-                        "then jump --pulse-delay-sec seconds before the next "
-                        "burst.")
-    p.add_argument("--pulse-n", type=int, default=10,
-                   dest="pulse_n",
-                   help="(--pulse) requests per burst. Default 10.")
-    p.add_argument("--pulse-delay-sec", type=int, default=60,
-                   dest="pulse_delay_sec",
-                   help="(--pulse) seconds between bursts. Default 60.")
-    p.add_argument("--pulse-poisson", action="store_true", default=False,
-                   dest="pulse_poisson",
-                   help="(--pulse) keep Poisson spacing inside each burst.")
 
     # ---- vLLM-mode flags --------------------------------------------------
     p.add_argument("--use-vllm", action="store_true",
@@ -171,7 +155,8 @@ def register_args(p: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     random.seed(args.seed)
-    np.random.seed(args.seed)
+    arrival = spec_from_args(args, "requests")
+    arrivals = arrival_times_ns(arrival, args.num_reqs)
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -192,20 +177,21 @@ def run(args: argparse.Namespace) -> int:
     # 3. Take the first ``num_reqs`` and emit JSONL.
     written = 0
     with out_path.open("w", encoding="utf-8") as fout:
-        time_ns = int(args.first_arrival_sec) * 1_000_000_000
         for in_ids, out_ids in pairs:
             if written >= args.num_reqs:
                 break
-            time_ns = _advance_arrival(time_ns, written, args)
             row = {
                 "input_toks": len(in_ids),
                 "output_toks": len(out_ids),
-                "arrival_time_ns": int(time_ns),
+                "arrival_time_ns": arrivals[written],
                 "input_tok_ids": list(in_ids),
                 "output_tok_ids": list(out_ids),
             }
             fout.write(json.dumps(row, ensure_ascii=False) + "\n")
             written += 1
+    manifest = {"schema_version": 1, "generator": "sharegpt", "seed": args.seed,
+                "num_requests": written, "arrival": arrival.to_dict()}
+    out_path.with_suffix(out_path.suffix + ".manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     print(f"Wrote {written} requests -> {out_path}")
     return 0
@@ -395,22 +381,3 @@ def _override_outputs_with_vllm(
         (in_ids, list(out.outputs[0].token_ids))
         for (in_ids, _), out in zip(pairs, outs)
     ]
-
-
-# ---------------------------------------------------------------------------
-# Arrival sampling
-# ---------------------------------------------------------------------------
-
-def _advance_arrival(time_ns: int, request_idx: int, args: argparse.Namespace) -> int:
-    """Compute the next request's arrival timestamp (ns).
-
-    * Pulse: every ``--pulse-n`` requests adds ``--pulse-delay-sec`` jump;
-      requests inside a burst share the same instant unless ``--pulse-poisson``.
-    * Otherwise: exponential inter-arrival at rate ``--sps`` (Poisson process).
-    """
-    if args.pulse and request_idx > 0 and request_idx % args.pulse_n == 0:
-        return time_ns + args.pulse_delay_sec * 1_000_000_000
-    if (not args.pulse) or args.pulse_poisson:
-        gap_ns = int(np.random.exponential(scale=1e9 / max(args.sps, 1e-9)))
-        return time_ns + gap_ns
-    return time_ns

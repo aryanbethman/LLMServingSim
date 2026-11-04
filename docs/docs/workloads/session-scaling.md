@@ -31,7 +31,7 @@ increasing arrival rate raises concurrency. Neither guarantees a busy cluster.
 
 The generator samples shuffled passes over the source corpus. Repeated passes
 are workload replication, not additional independent recorded tasks. Its JSON
-manifest records the source/output SHA-256, seed, arrival rate, source-session
+manifest records the source/output SHA-256, seed, arrival spec, source-session
 mapping and token policy. Existing outputs are never overwritten.
 
 ### Token identity and cache fidelity

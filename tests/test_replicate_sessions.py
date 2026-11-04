@@ -26,6 +26,10 @@ class ReplicationTest(unittest.TestCase):
             rows = load_sessions(dst)
             self.assertEqual(len({r["session_id"] for r in rows}), 3)
             self.assertEqual(len({r["arrival_time_ns"] for r in rows}), 3)
+            self.assertEqual(rows[0]["arrival_time_ns"], 0)
+            manifest = json.loads(dst.with_suffix(".jsonl.manifest.json").read_text())
+            self.assertEqual(manifest["arrival"]["process"], "poisson")
+            self.assertEqual(manifest["arrival"]["rate"], 3.2)
             for row in rows:
                 a, b = row["sub_requests"]
                 self.assertEqual(b["input_tok_ids"][:3], a["input_tok_ids"] + a["output_tok_ids"])
