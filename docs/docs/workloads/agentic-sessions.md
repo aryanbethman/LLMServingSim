@@ -120,7 +120,9 @@ takes another run prefix in that bucket or a local directory with the
 same `<instance_id>/trajectory.json` layout. The default is the Qwen
 team's OpenHands + Qwen3-Coder-30B-A3B-Instruct run on SWE-bench
 Verified: 500 tasks, a median of 59 LLM calls per session, prompts up
-to 122k tokens, and a median tool wait of 0.62 s.
+to 122k tokens, and a median tool wait of 0.62 s. That median is OpenHands'
+bash-tool floor, not command time; see
+[Recorded tool delays](./arrival-processes#recorded-tool-delays).
 
 What each field comes from:
 

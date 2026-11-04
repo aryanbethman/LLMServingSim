@@ -195,3 +195,97 @@ the burstier the process. For 200 replicated SWE-bench sessions at
 1.18 sessions/s. Report both rates. Use enough rows or several seeds that the
 measurement window sees the intended load.
 :::
+
+## Measured arrivals
+
+`analysis/arrival_fit.py` fits these processes to a timestamp trace. It
+reports maximum-likelihood gap fits with AIC and Kolmogorov-Smirnov distance
+`D`, gap autocorrelation, count dispersion per window and the rate over time.
+It also prints ready-to-use generator flags:
+
+```bash
+python analysis/arrival_fit.py BurstGPT_1.csv --preset burstgpt \
+    --where Model=ChatGPT --where "Log Type=Conversation log"
+```
+
+Two numbers say the most. Count dispersion is the variance over the mean of
+arrivals per window: 1 at every window for Poisson. For any renewal process,
+gap autocorrelation is 0.
+
+| Trace (subset) | Arrivals | Span | Rate/s | Gap CV | Dispersion at 10 s / 60 s / 1 h | Lag-1 gap autocorr. | Best gap fit (`D`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Azure 2023 conversation | 19,366 | 1 h | 5.53 | 1.09 | 3.9 / 16 / - | 0.06 | Weibull, cv 1.09 (0.016) |
+| Azure 2023 code | 8,819 | 1 h | 2.57 | 13.2 | 72 / 164 / - | 0.00 | none fits (Weibull 0.14) |
+| Mooncake conversation (3 s bins) | 12,031 | 1 h | 3.40 | - | 1.5 / 2.9 / - | - | binned; see below |
+| Mooncake tool-agent (3 s bins) | 23,608 | 1 h | 6.67 | - | 2.1 / 3.7 / - | - | binned; see below |
+| BurstGPT ChatGPT conversation | 103,111 | 61 d | 0.020 | 4.9 | 1.2 / 2.1 / 55 | 0.18 | lognormal (0.048) |
+| BurstGPT GPT-4 conversation | 51,108 | 61 d | 0.010 | 4.5 | 1.1 / 1.6 / 31 | 0.16 | lognormal (0.041) |
+| BurstGPT ChatGPT API | 1,106,998 | 59 d | 0.22 | 98 | 29 / 165 / 6,721 | 0.10 | lognormal (0.048) |
+| BurstGPT GPT-4 API | 168,520 | 59 d | 0.033 | 34 | 13 / 62 / 1,145 | 0.14 | Weibull (0.065) |
+
+What the fits show:
+
+1. **Interactive traffic is Poisson over seconds.** Over windows of 10 s or
+   less, conversation traffic has dispersion of about 1 to 1.5:
+   - BurstGPT conversation is 1.1-1.2 at 10 s.
+   - Mooncake's 3 s bins have variance over mean 1.1 (conversation) and 1.6
+     (tool-agent).
+   - Divide Azure conversation's gaps by each minute's mean gap and their CV
+     is 1.03.
+2. **The rate itself moves.** Dispersion grows with the window in every
+   trace. Long traces mix rates, which gives the positive gap autocorrelation
+   and the heavy-tailed raw gaps. Lognormal "wins" BurstGPT because of this
+   mixing, not because the gaps have a lognormal shape. Over the day,
+   conversation traffic has a working-day profile with a midday dip and a
+   peak-to-trough ratio of about 45. The script prints it as a periodic
+   `nhpp` schedule with hours counted from the trace's start. API traffic
+   follows a different profile.
+3. **Programmatic traffic is a different process.** API logs and code
+   completion are bursty even at 10 s: dispersion 13-72, gap CV 13-98. No
+   single renewal distribution fits them. Bursts of calls, modeled as `mmpp`
+   or `pulse`, fit them better than gap shape does.
+
+The model for interactive traffic is therefore Poisson with a time-varying
+rate. Use `poisson` within a measurement window that is short against the
+rate's drift, and `nhpp` (from `daily_profile.flags`) for longer runs. Use
+`mmpp` for API- or agent-driven bursts. High-CV renewal processes reproduce
+the raw gap histogram of a long trace, but they get the reason wrong. They
+put the burstiness in individual gaps, while in the traces it comes from the
+rate changing.
+
+:::caution[Binned and quantized timestamps]
+Mooncake's conversation and tool-agent traces bucket arrivals into 3 s bins.
+Its `arxiv` trace has the same per-bin counts as tool-agent, on 3.053 s bins.
+The script spreads arrivals uniformly within a bin before taking gaps, so
+those traces' gap fits come out Poisson by construction. Only their count
+dispersion at windows of 6 s and over is evidence. BurstGPT timestamps are
+whole seconds, and 46% of its arrivals share a second with another.
+:::
+
+Sources (downloaded 2026-11-04): BurstGPT v2.0 release `BurstGPT_1.csv`
+(sha256 `4bb37836...`), Azure Public Dataset
+`AzureLLMInferenceTrace_{conv,code}.csv` (`2f1e5b66...`, `54e9a6d2...`) and
+Mooncake `FAST25-release/traces/{conversation,toolagent}_trace.jsonl`
+(`b8cbb061...`, `48a2db1a...`).
+
+### Recorded tool delays
+
+`analysis/tool_delay_audit.py` splits a SWE-bench run's recorded tool delays
+by tool and command. For each step it also checks that it reproduces the
+swebench generator's delays exactly. For the default Qwen3-Coder OpenHands
+run (500 trajectories, 30,287 steps):
+
+| Tool | Share of steps | p50 | p90 | p99 |
+| --- | --- | --- | --- | --- |
+| `run` (bash) | 57% | 0.623 s | 1.13 s | 4.15 s |
+| `read` | 22% | 6 ms | 16 ms | 19 ms |
+| `edit` | 16% | 6 ms | 17 ms | 32 ms |
+| `think` | 6% | 1 ms | 2 ms | 3 ms |
+
+The delays are real harness latencies, not corrupted timestamps, but bash
+delays measure OpenHands' polling more than the command. Every bash command
+costs at least 0.62 s, `pwd` and `ls` included, and 97% of the longer ones
+land at 0.62 + 0.5k s. Tool time is 7.7% of recorded session time. The other
+92% is the gap from a tool result to the next LLM response, which the
+simulator models itself. Use `--tool-delay` to test a different harness, for
+example `--tool-delay scale --tool-delay-factor 0` for a zero-latency one.

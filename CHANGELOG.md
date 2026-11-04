@@ -18,6 +18,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
   scale|constant|lognormal`). `analysis/offered_load.py` reports a workload's
   offered call and token rates. The model and its consequences are documented in
   `docs/docs/workloads/arrival-processes.md`.
+- `analysis/arrival_fit.py` fits the arrival processes to public timestamp traces
+  (BurstGPT, Azure LLM inference 2023, Mooncake, or plain timestamps). It reports
+  MLE gap fits with AIC and KS distance, count dispersion, gap autocorrelation,
+  rate and daily profiles, and the matching generator flags.
+  `analysis/tool_delay_audit.py` splits SWE-bench tool delays by tool and command.
+  Findings are in the arrival-processes documentation.
 - Complete-session replication with deterministic arrivals, unique identities,
   declared token-identity policy and checksum/provenance manifests.
 - Opt-in replica batch-occupancy and queue reports, an optimized legacy graph
