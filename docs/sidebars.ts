@@ -117,6 +117,7 @@ const sidebars: SidebarsConfig = {
         'workloads/jsonl-format',
         'workloads/sharegpt-generators',
         'workloads/agentic-sessions',
+        'workloads/arrival-processes',
       ],
     },
     {

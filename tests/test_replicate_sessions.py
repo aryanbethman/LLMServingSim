@@ -29,7 +29,7 @@ class ReplicationTest(unittest.TestCase):
             self.assertEqual(rows[0]["arrival_time_ns"], 0)
             manifest = json.loads(dst.with_suffix(".jsonl.manifest.json").read_text())
             self.assertEqual(manifest["arrival"]["process"], "poisson")
-            self.assertEqual(manifest["arrival"]["rate"], 3.2)
+            self.assertEqual(manifest["arrival"]["params"], {"rate": 3.2})
             for row in rows:
                 a, b = row["sub_requests"]
                 self.assertEqual(b["input_tok_ids"][:3], a["input_tok_ids"] + a["output_tok_ids"])
@@ -53,6 +53,15 @@ class ReplicationTest(unittest.TestCase):
             args.output = again
             run(args)
             self.assertEqual(dst.read_bytes(), again.read_bytes())
+            constant = Path(tmp) / "constant.jsonl"
+            args.output = constant
+            args.tool_delay, args.tool_delay_sec = "constant", 0.25
+            run(args)
+            rows = load_sessions(constant)
+            self.assertEqual([[c["tool_duration_ns"] for c in r["sub_requests"]] for r in rows],
+                             [[250_000_000, 0]] * 3)
+            manifest = json.loads(constant.with_suffix(".jsonl.manifest.json").read_text())
+            self.assertEqual(manifest["tool_delay"]["mode"], "constant")
 
 
 if __name__ == "__main__":

@@ -215,10 +215,11 @@ over 250 simulator-seconds and each running ~60 seconds, you get
 
 `--sps` sets only *session* starts. The `swebench` and
 `replicate-sessions` generators share the arrival flags of the ShareGPT
-generator (`--first-arrival-sec`, `--pulse`, `--pulse-n`,
-`--pulse-delay-sec`, `--pulse-poisson`) and record the arrival spec in
-`<output>.manifest.json`. Arrivals of later calls in a session are not
-drawn. The simulator sets them from when the previous call completes.
+generator and record the arrival spec in `<output>.manifest.json`.
+Arrivals of later calls in a session are not drawn. The simulator sets
+them from when the previous call completes. See
+[Arrival processes](./arrival-processes) for the bursty and
+time-varying processes, tool-delay replacement and offered load.
 
 ## Mixing flat + agentic in one file
 

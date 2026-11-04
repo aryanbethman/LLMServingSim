@@ -11,6 +11,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
   shared flags (`--sps`, `--first-arrival-sec`, `--pulse*`) and the arrival spec
   recorded in every output's `<output>.manifest.json`. Unit tests in
   `tests/test_arrivals.py`.
+- Arrival processes beyond Poisson and pulse: `gamma`, `weibull` and `lognormal`
+  renewal at a chosen gap CV, two-state `mmpp`, time-varying `nhpp` and `trace`
+  replay, selected with `--arrival-process`. `replicate-sessions` and
+  `session_scale.py prepare` can replace recorded tool delays (`--tool-delay
+  scale|constant|lognormal`). `analysis/offered_load.py` reports a workload's
+  offered call and token rates. The model and its consequences are documented in
+  `docs/docs/workloads/arrival-processes.md`.
 - Complete-session replication with deterministic arrivals, unique identities,
   declared token-identity policy and checksum/provenance manifests.
 - Opt-in replica batch-occupancy and queue reports, an optimized legacy graph

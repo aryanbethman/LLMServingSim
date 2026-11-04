@@ -116,7 +116,9 @@ behavior. With it, a pulse longer than the period overlaps the next one.
 
 Arrival times come from `workloads/generators/arrivals.py`, which the
 SWE-bench and session-replication generators share, so the same flags
-give the same times in every generator. The first request arrives at
+give the same times in every generator. Other processes (Gamma, Weibull
+and lognormal renewal, MMPP, a time-varying rate, trace replay) are
+described in [Arrival processes](./arrival-processes). The first request arrives at
 exactly `--first-arrival-sec`, and arrivals use their own random stream,
 so changing filters or sampling does not move them. The generator writes
 the arrival spec to `<output>.manifest.json`.

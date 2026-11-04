@@ -5,7 +5,8 @@ relabels each repeated source corpus into a disjoint integer range. It keeps
 all prefix equalities within a copy, including cross-task system prefixes,
 without introducing cache reuse between independent copies of the corpus.
 ``preserve`` explicitly models repeated identical content instead.
-Session arrivals come from ``workloads.generators.arrivals``.
+Session arrivals and, with ``--tool-delay``, replacement tool delays come from
+``workloads.generators.arrivals``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ import json
 import random
 from pathlib import Path
 
-from workloads.generators.arrivals import add_arrival_args, arrival_times_ns, spec_from_args
+from workloads.generators.arrivals import (add_arrival_args, add_tool_delay_args, arrival_times_ns,
+                                           spec_from_args, tool_delay_spec_from_args)
 
 
 def register_args(parser):
@@ -25,6 +27,7 @@ def register_args(parser):
     parser.add_argument("--num-sessions", type=int, required=True)
     parser.add_argument("--seed", type=int, default=42)
     add_arrival_args(parser, "sessions")
+    add_tool_delay_args(parser)
     parser.add_argument("--token-policy", choices=("isolate-copies", "preserve"),
                         default="isolate-copies")
 
@@ -59,11 +62,12 @@ def load_sessions(path):
     return sessions
 
 
-def replicated_session(source, index, copy_index, arrival_ns, stride, policy):
+def replicated_session(source, index, copy_index, arrival_ns, stride, policy, tool_delays):
     offset = copy_index * stride if policy == "isolate-copies" else 0
     calls = []
-    for original in source["sub_requests"]:
-        call = dict(original)
+    delays = tool_delays([call.get("tool_duration_ns", 0) for call in source["sub_requests"]])
+    for original, delay in zip(source["sub_requests"], delays):
+        call = dict(original, tool_duration_ns=delay)
         for field in ("input_tok_ids", "output_tok_ids"):
             if field in call and offset:
                 call[field] = [token + offset for token in call[field]]
@@ -84,6 +88,7 @@ def run(args):
     if args.num_sessions <= 0:
         raise ValueError("num-sessions must be positive")
     arrival = spec_from_args(args, "sessions")
+    tool_delay = tool_delay_spec_from_args(args)
     if args.output.resolve() == args.source.resolve():
         raise ValueError("output must differ from source")
     manifest_path = args.output.with_suffix(args.output.suffix + ".manifest.json")
@@ -95,6 +100,7 @@ def run(args):
                       for token in call.get(field, [])), default=0)
     order_rng = random.Random(args.seed)
     arrivals = arrival_times_ns(arrival, args.num_sessions)
+    tool_delays = tool_delay.sampler()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     provenance = []
     digest = hashlib.sha256()
@@ -109,7 +115,7 @@ def run(args):
                 if index >= args.num_sessions:
                     break
                 row = replicated_session(sessions[source_index], index, copy_index,
-                                         arrivals[index], stride, args.token_policy)
+                                         arrivals[index], stride, args.token_policy, tool_delays)
                 encoded = json.dumps(row, separators=(",", ":")) + "\n"
                 handle.write(encoded)
                 digest.update(encoded.encode())
@@ -122,9 +128,13 @@ def run(args):
     manifest = {"schema_version": 2, "source": str(args.source),
                 "source_sha256": file_sha256(args.source),
                 "output_sha256": digest.hexdigest(), "seed": args.seed, "arrival": arrival.to_dict(),
+                "tool_delay": tool_delay.to_dict(),
                 "num_sessions": args.num_sessions, "num_calls": total_calls,
                 "token_policy": args.token_policy, "token_namespace_stride": stride,
-                "fidelity": "Complete call chains, lengths, tool delays and within-copy prefix equality preserved; only IDs and session arrivals change.",
+                "fidelity": ("Complete call chains, lengths, tool delays and within-copy prefix equality preserved; "
+                             "only IDs and session arrivals change." if tool_delay.mode == "recorded" else
+                             "Complete call chains, lengths and within-copy prefix equality preserved; IDs, "
+                             "session arrivals and tool delays change."),
                 "sessions": provenance}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Wrote {args.num_sessions} complete sessions / {total_calls} calls to {args.output}")

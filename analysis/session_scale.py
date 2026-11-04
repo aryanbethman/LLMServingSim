@@ -26,6 +26,7 @@ import uuid
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from workloads.generators.arrivals import add_arrival_args, add_tool_delay_args
 from workloads.generators.replicate_sessions import file_sha256, load_sessions, run as replicate
 
 MODES = {
@@ -78,10 +79,7 @@ def prepare(args):
     node["num_instances"] = len(node["instances"])
     args.output_dir.mkdir(parents=True, exist_ok=False)
     (args.output_dir / "cluster.json").write_text(json.dumps(config, indent=2) + "\n")
-    replicate(argparse.Namespace(source=args.source, output=args.output_dir / "sessions.jsonl",
-                                 num_sessions=args.num_sessions, sps=args.sps,
-                                 seed=args.seed, first_arrival_sec=0,
-                                 token_policy=args.token_policy))
+    replicate(argparse.Namespace(**vars(args), output=args.output_dir / "sessions.jsonl"))
     print(args.output_dir / "cluster.json")
 
 
@@ -318,9 +316,10 @@ def main():
     prep.add_argument("--output-dir", type=Path, required=True)
     prep.add_argument("--npus", type=int, required=True)
     prep.add_argument("--num-sessions", type=int, required=True)
-    prep.add_argument("--sps", type=float, required=True)
     prep.add_argument("--seed", type=int, default=42)
     prep.add_argument("--token-policy", choices=("isolate-copies", "preserve"), default="isolate-copies")
+    add_arrival_args(prep, "sessions")
+    add_tool_delay_args(prep)
     prep.set_defaults(function=prepare)
     runner = sub.add_parser("run")
     runner.add_argument("--config", type=Path, required=True)
