@@ -33,6 +33,8 @@ LLMServingSim is a cycle-level simulator for LLM serving infrastructure. It pair
 Multi-rank instance completion follows the slowest rank in each workload
 iteration, while the first rank may continue to admit PP lookahead work.
 
+The analytical backend supports shared execution templates with `--execution-template-mode shared-template`. See the [simulator flags](docs/docs/reference/cli-flags.md) for backend and workload support.
+
 ## Getting Started
 
 ```bash

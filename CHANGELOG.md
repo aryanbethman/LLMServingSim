@@ -7,6 +7,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
 
 ### Added
 
+- Add opt-in shared execution templates for the analytical simulator. The controller sends reusable graph structures and rank bindings through the existing pipe.
+
 - Introduce [Simthesizer](https://simthesizer.ai/), a sibling project for
   coding-agent-driven simulator development, on the website's landing page.
   An equal-width split below the LLMServingSim hero presents LLMServingSim 2.0

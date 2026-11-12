@@ -107,7 +107,7 @@ from one list is visible against the other.
 | **speculative decoding** | `--num-speculative-tokens`, `--spec-acceptance-rate`, `--spec-acceptance-policy` |
 | **offloading** | `--enable-attn-offloading`, `--enable-sub-batch-interleaving`, `--enable-local-offloading` |
 | **trace / graph** | `--enable-block-copy`; run-wide: `--save-trace-text`, `--keep-inputs` |
-| **backend** *(run-wide)* | `--network-backend` |
+| **backend** *(run-wide)* | `--network-backend`, `--execution-template-mode`, `--template-cache-max-entries`, `--compact-controller-protocol`, `--execution-template-stats-output` |
 | **output** *(run-wide)* | `--output`, `--run-id`, `--inputs-root`, `--log-interval`, `--log-level` |
 
 The reversible switches also accept `--no-enable-block-copy`,

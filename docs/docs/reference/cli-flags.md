@@ -23,6 +23,10 @@ heterogeneous instances. Flags without that marker remain run-wide. See
 | --- | --- | --- | --- |
 | `--cluster-config` | path | `configs/cluster/single_node_single_instance.json` | Path to a cluster-config JSON. See **[Cluster config](./cluster-config)** |
 | `--network-backend` | choice | `analytical` | Network simulation backend. `analytical` (fast) or `ns3` (detailed, WIP) |
+| `--execution-template-mode` | choice | `legacy` | Write rank ET files, or use `shared-template` to send reusable templates to the analytical backend. Shared templates require a configuration without explicit DP groups. |
+| `--template-cache-max-entries` | int | `128` | Target bound for cached templates. Active feeders may hold templates beyond this bound. |
+| `--compact-controller-protocol` | flag | off | Use compact controller messages with the analytical backend. |
+| `--execution-template-stats-output` | path | none | Write graph-cache and template transport counters to JSON. |
 
 ## Batching and scheduling
 

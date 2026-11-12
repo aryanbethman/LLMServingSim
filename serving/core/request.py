@@ -174,6 +174,7 @@ class Batch:
         # handed the same folder, not just the one that generated it. None means
         # "derive the default path".
         self.workload_name = None
+        self.execution_graph = None
 
         # Per-batch snapshots ``add_done`` works from. They cannot live on the
         # Request: at ``pp_size > 1`` a request is re-examined by a later

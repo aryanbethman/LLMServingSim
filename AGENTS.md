@@ -2811,6 +2811,8 @@ the generation call and check both defaults and explicit overrides. This path
 requires `--use-vllm` without `--fix-len`; existing workload files are unchanged.
 Do not promise an output length or EOS behavior from the penalty alone.
 
+For execution-template changes, compare file and shared-template modes using identical inputs and controller settings. Require exact request CSV and simulated-clock parity before comparing wall time.
+
 ## Commit & Pull Request Guidelines
 
 - Short imperative commit messages: `Fix incorrect evict_size accumulation`,

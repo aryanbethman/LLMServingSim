@@ -642,7 +642,23 @@ def main():
     parser.add_argument('--network-backend', type=str, choices=['analytical', 'ns3'], default='analytical',
                         help='network simulation backend: analytical (fast, default) or ns3 (detailed, WIP)')
 
+    parser.add_argument("--execution-template-mode", choices=("legacy", "shared-template"),
+                        default="legacy", help="deliver workloads as rank ET files or shared templates")
+    parser.add_argument("--template-cache-max-entries", type=int, default=128,
+                        help="maximum inactive template cache size in ASTRA-Sim")
+    parser.add_argument("--execution-template-stats-output",
+                        help="write a JSON report of execution-template transport counters")
+    parser.add_argument("--compact-controller-protocol", action="store_true",
+                        help="use ASTRA-Sim's compact completion messages")
+
     args = parser.parse_args()
+    shared_templates = args.execution_template_mode == "shared-template"
+    if args.template_cache_max_entries < 1:
+        parser.error("--template-cache-max-entries must be positive")
+    if args.network_backend != "analytical" and (shared_templates or args.compact_controller_protocol):
+        parser.error("Shared templates and the compact controller require the analytical backend")
+    if args.execution_template_stats_output:
+        args.execution_template_stats_output = os.path.join(cwd, args.execution_template_stats_output)
     
     # Resolved against the repo root, not ``astra-sim/``. Every other path the
     # simulator reads is a repo-relative literal in code and carries its own
@@ -675,6 +691,8 @@ def main():
     network_backend = args.network_backend
     raw_cluster_config = _load_cluster_config_for_overrides(args.cluster_config)
     raw_instances = list(_iter_raw_instances(raw_cluster_config))
+    if shared_templates and any(inst.get("dp_group") is not None for inst in raw_instances):
+        parser.error("Shared templates do not support explicit DP groups")
     build_enable_local_offloading = args.enable_local_offloading or any(
         inst.get("enable_local_offloading", False) for inst in raw_instances)
     build_enable_attn_offloading = args.enable_attn_offloading or any(
@@ -909,7 +927,11 @@ def main():
         astra_args.append("--end-npu-ids="+end_npu_ids)
     if network_backend == 'ns3':
         astra_args.append("--logical-topology-configuration="+astra_sim+"/inputs/logical_topology/logical_8nodes_1D.json")
-    p = subprocess.Popen(astra_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if shared_templates:
+        astra_args.append(f"--template-cache-max-entries={args.template_cache_max_entries}")
+    if args.compact_controller_protocol:
+        astra_args.append("--compact-controller-protocol")
+    p = subprocess.Popen(astra_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
     # DP group synchronization: defer trace generation until all members have scheduled
     # dp_groups maps dp_group_name -> list of instance_ids
@@ -967,8 +989,11 @@ def main():
     # Starting simulation, one while loop processes one iteration
     while True:
         
-        out = controller.read_wait(p)
-        out_dict = controller.parse_output(out[-2])
+        if args.compact_controller_protocol:
+            out_dict = controller.read_completion(p)
+        else:
+            out = controller.read_wait(p)
+            out_dict = controller.parse_output(out[-2])
         
         if out_dict != None:
             sys = out_dict['sys']
@@ -1261,16 +1286,24 @@ def main():
                                        schedulers[instance_id].spec.N
                                        if schedulers[instance_id].spec else 0),
                                    gate_stats_path=args.gate_stats)
-                    generate_graph(new_req, instance["hardware"], instance["num_npus"], node_id,
-                                   instance_id, inst2npu_mapping[instance_id],
-                                   inst_cfg["enable_local_offloading"],
-                                   inputs_root=run_paths.inputs_root,
-                                   save_trace_text=args.save_trace_text,
-                                   trace=trace_data)
-                    workload = get_workload(new_req, instance["hardware"], instance_id,
-                                            inputs_root=run_paths.inputs_root)
-                    controller.write_flush(p, workload)
-                    _reap_finished_workloads(workload)
+                    graph = generate_graph(
+                        new_req, instance["hardware"], instance["num_npus"], node_id,
+                        instance_id, inst2npu_mapping[instance_id],
+                        inst_cfg["enable_local_offloading"],
+                        inputs_root=run_paths.inputs_root,
+                        save_trace_text=args.save_trace_text,
+                        template_mode=args.execution_template_mode,
+                        known_template_ids=controller.sent_template_ids,
+                        trace=trace_data,
+                    )
+                    if shared_templates:
+                        new_req.execution_graph = graph
+                        controller.write_execution_graph(p, graph)
+                    else:
+                        workload = get_workload(new_req, instance["hardware"], instance_id,
+                                                inputs_root=run_paths.inputs_root)
+                        controller.write_flush(p, workload)
+                        _reap_finished_workloads(workload)
             else:
                 # Joined an existing batch: pick up its workload. workload_name
                 # matters for a DP batch, whose graph lives in the group's shared
@@ -1293,6 +1326,8 @@ def main():
                     new_req.fired.remove(sys)
                     controller.write_flush(p, _pass_response(router, current, state_changed=True))
                     responded = True
+                elif shared_templates:
+                    controller.write_execution_graph(p, new_req.execution_graph)
                 else:
                     workload = get_workload(new_req, instances[instance_id]["hardware"], instance_id,
                                             workload_name=new_req.workload_name,
@@ -1483,7 +1518,17 @@ def main():
     minutes, seconds = divmod(remainder, 60)
 
     # check all scheduled requests in astra-sim are well done
-    controller.check_end(p)
+    controller.check_end(p, compact_protocol=args.compact_controller_protocol)
+    returncode = p.wait()
+    if returncode:
+        raise RuntimeError(f"ASTRA-Sim exited with status {returncode}")
+    if args.execution_template_stats_output:
+        stats = controller.get_template_transport_stats()
+        stats["mode"] = args.execution_template_mode
+        stats["graph_cache"] = graph_cache_stats()
+        report = Path(args.execution_template_stats_output)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
 
     # calcuate prefix caching metrics
     total_requested_tokens = 0
