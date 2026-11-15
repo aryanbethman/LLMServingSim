@@ -35,6 +35,12 @@ class Controller():
         # cache never crosses the pipe again, however often a later batch
         # re-derives the same structure.
         self.sent_template_ids = set()
+        # Every template definition ever sent, by id. ASTRA-Sim evicts
+        # templates it no longer holds a reference to and reports them with
+        # TEMPLATE_RELEASE; a graph built before that (a batch re-sent to
+        # another NPU of the instance, or a bindings-cache hit) can still
+        # reference one. Its definition is re-attached from here.
+        self.template_store = {}
         self.template_transport_stats = {
             "bundles": 0,
             "wire_bytes": 0,
@@ -144,6 +150,20 @@ class Controller():
         p.stdin.write("ET_PAYLOADS " + json.dumps(encoded, separators=(",", ":")) + "\n")
         p.stdin.flush()
 
+    def _missing_definitions(self, template_ids):
+        """Definitions for referenced templates ASTRA-Sim no longer holds."""
+        missing = {}
+        for template_id in template_ids:
+            if template_id in self.sent_template_ids:
+                continue
+            if template_id not in self.template_store:
+                raise RuntimeError(f"template {template_id} was never sent")
+            missing[template_id] = self.template_store[template_id]
+        if missing:
+            self.template_transport_stats["templates_resent"] = (
+                self.template_transport_stats.get("templates_resent", 0) + len(missing))
+        return missing
+
     def write_template_bundle(self, p, bundle):
         """Send structural ET templates plus sparse rank overlays.
 
@@ -152,6 +172,11 @@ class Controller():
         Callers get the savings reported through
         `get_template_transport_stats`.
         """
+        self.template_store.update(bundle["templates"])
+        referenced = {b["template_id"] for b in bundle["bindings"].values()}
+        missing = self._missing_definitions(referenced - set(bundle["templates"]))
+        if missing:
+            bundle = {**bundle, "templates": {**bundle["templates"], **missing}}
         duplicate_template_ids = (
             self.sent_template_ids.intersection(bundle["templates"].keys())
         )
@@ -190,9 +215,12 @@ class Controller():
         no new template definitions; the bindings JSON was encoded once,
         when the batch was first converted.
         """
-        encoded = '{"templates":{},"bindings":' + cached.bindings_json + '}'
+        missing = self._missing_definitions(cached.template_ids)
+        templates_json = json.dumps(missing, separators=(",", ":")) if missing else "{}"
+        encoded = '{"templates":' + templates_json + ',"bindings":' + cached.bindings_json + '}'
         p.stdin.write("ET_TEMPLATE_BUNDLE " + encoded + "\n")
         p.stdin.flush()
+        self.sent_template_ids.update(missing)
         stats = self.template_transport_stats
         stats["bundles"] += 1
         stats["wire_bytes"] += len(encoded)
