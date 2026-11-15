@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import base64
 import json
 import re
@@ -26,6 +27,13 @@ _TEMPLATE_PROFILE_RE = re.compile(
 )
 
 
+# Definitions kept for re-sending templates ASTRA-Sim has evicted. A re-send
+# follows its eviction closely (the instance's other polled NPU asking for the
+# same batch), so recent definitions suffice; unbounded, the store reached
+# tens of GB at 256 NPUs. Far above ASTRA-Sim's template cache size.
+_TEMPLATE_STORE_MAX = 4096
+
+
 class Controller():
     def __init__(self, total_num):
         self.end_dict = {}
@@ -40,7 +48,7 @@ class Controller():
         # TEMPLATE_RELEASE; a graph built before that (a batch re-sent to
         # another NPU of the instance, or a bindings-cache hit) can still
         # reference one. Its definition is re-attached from here.
-        self.template_store = {}
+        self.template_store = OrderedDict()
         self.template_transport_stats = {
             "bundles": 0,
             "wire_bytes": 0,
@@ -157,7 +165,10 @@ class Controller():
             if template_id in self.sent_template_ids:
                 continue
             if template_id not in self.template_store:
-                raise RuntimeError(f"template {template_id} was never sent")
+                raise RuntimeError(
+                    f"template {template_id} is not held by ASTRA-Sim and no longer in the "
+                    f"controller's store (raise _TEMPLATE_STORE_MAX)")
+            self.template_store.move_to_end(template_id)
             missing[template_id] = self.template_store[template_id]
         if missing:
             self.template_transport_stats["templates_resent"] = (
@@ -172,7 +183,11 @@ class Controller():
         Callers get the savings reported through
         `get_template_transport_stats`.
         """
-        self.template_store.update(bundle["templates"])
+        for template_id, nodes in bundle["templates"].items():
+            self.template_store[template_id] = nodes
+            self.template_store.move_to_end(template_id)
+        while len(self.template_store) > _TEMPLATE_STORE_MAX:
+            self.template_store.popitem(last=False)
         referenced = {b["template_id"] for b in bundle["bindings"].values()}
         missing = self._missing_definitions(referenced - set(bundle["templates"]))
         if missing:
