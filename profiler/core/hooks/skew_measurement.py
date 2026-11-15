@@ -77,8 +77,12 @@ def _verified_builder_outputs(runner, requests, state_layers):
                     local = vars(builder).get("build")
 
                     def build(*args, _original=original, **kwargs):
-                        # GPUModelRunner passes common metadata by keyword.
+                        # vLLM 0.31's GPUModelRunner passed common metadata by
+                        # keyword; 0.33 passes (common_prefix_len, metadata)
+                        # positionally (AttentionGroup.build_metadata).
                         common = kwargs.get("common_attn_metadata")
+                        if common is None and len(args) >= 2:
+                            common = args[1]
                         if common is None:
                             raise ValueError("Missing common attention metadata at build")
                         _verify_request_geometry(common, requests)

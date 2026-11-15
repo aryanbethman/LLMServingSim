@@ -1,0 +1,347 @@
+per_tp:
+  '1':
+    sampling:
+      dense:
+        execution: eager
+        graph_role: sampling_coordinates
+        targets:
+        - tp: 1
+          dp: 1
+          query_length: 1
+          source: derived capture candidates
+          runner: v2
+          mode: FULL_AND_PIECEWISE
+          capture_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96,
+            104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208,
+            216, 224, 232, 240, 248, 256]
+          full_capture_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88,
+            96, 104, 112, 120, 128]
+          compute_capability: '8.9'
+          attention_cg_support: UNIFORM_BATCH
+          capability_scope: acquisition backend, not full-model capture
+          assumptions: default compiled serving with piecewise support; no LoRA, DBO
+            or context parallelism
+        tp_stable_forward_tokens: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80,
+          88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200,
+          208, 216, 224, 232, 240, 248, 256]
+        grid_factor: 2.0
+        feasible_shots: 38
+      per_sequence:
+        execution: eager
+        graph_role: none; target logits and sampler use actual output rows
+        grid_factor: 2.0
+        feasible_shots: 8
+      attention:
+        execution: eager
+        graph_role: sampling_coordinates
+        targets:
+        - tp: 1
+          dp: 1
+          query_length: 1
+          source: derived capture candidates
+          runner: v2
+          mode: FULL_AND_PIECEWISE
+          capture_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96,
+            104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208,
+            216, 224, 232, 240, 248, 256]
+          full_capture_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88,
+            96, 104, 112, 120, 128]
+          compute_capability: '8.9'
+          attention_cg_support: UNIFORM_BATCH
+          capability_scope: acquisition backend, not full-model capture
+          assumptions: default compiled serving with piecewise support; no LoRA, DBO
+            or context parallelism
+        grid_factor: 2.0
+        feasible_shots: 14104
+        factors:
+          chunk: 2.0
+          kv: 2.0
+          n: 1.4142135623730951
+        graph_anchors: pure regimes only; mixed retains geometric axes
+    measurements:
+      dense:
+        identity: &id001
+          protocol: pytorch-kineto-device-active-union
+          catalog:
+            embedding:
+              vllm: VocabParallelEmbedding
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            layernorm:
+              vllm: RMSNorm
+              within: [Qwen3DecoderLayer, Qwen3MoeDecoderLayer]
+              not_within: null
+              tp_stable: true
+              occurrences: 2
+              normalization: parent
+            qkv_proj:
+              vllm: QKVParallelLinear
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            qk_norm:
+              vllm: RMSNorm
+              within: [Qwen3Attention, Qwen3MoeAttention]
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            rotary_emb:
+              vllm: RotaryEmbedding
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            o_proj:
+              vllm: RowParallelLinear
+              within: [Qwen3Attention, Qwen3MoeAttention]
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            gate_up_proj:
+              vllm: MergedColumnParallelLinear
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            act_fn:
+              vllm: SiluAndMul
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            down_proj:
+              vllm: RowParallelLinear
+              within: Qwen2MLP
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            final_layernorm:
+              vllm: RMSNorm
+              within: [Qwen3ForCausalLM, Qwen3MoeForCausalLM]
+              not_within: null
+              tp_stable: true
+              occurrences: 1
+              normalization: parent
+          iterations: 3
+          scope_contexts:
+            schema: 1
+            methods: [compute_logits, embed_input_ids]
+            operators: []
+          torch: 2.14.0+cu130
+          vllm: 0.33.0
+          method:
+            collector: PyTorch profiler / Kineto
+            aggregation: device-active interval union per invocation, normalized over
+              calls
+            ownership: CPU launch correlation; CPU durations excluded
+            preparation:
+              weights: vLLM dummy initialization
+              kv: assigned pages initialized before warmup
+              recurrent_state: zero-start
+              queries: deterministic token IDs and explicit request phases
+            iterations: 3
+        measurement:
+          measurement_protocol: pytorch-kineto-device-active-union
+          measurement_sha256: 44a090fc95f255278da4b317d1c01e359035e3b569954314af5bb33d08a10fac
+        acquisitions:
+        - *id001
+        publication:
+          state: complete
+          csv_sha256: 006bf2bb95b20e842afdc9f16780ba111f63532111389df254ab633c83bb2124
+      per_sequence:
+        identity: &id002
+          protocol: pytorch-kineto-device-active-union
+          catalog:
+            lm_head:
+              vllm: LogitsProcessor
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+            sampler:
+              vllm: Sampler
+              within: null
+              not_within: null
+              tp_stable: true
+              occurrences: 1
+              normalization: parent
+          iterations: 3
+          scope_contexts:
+            schema: 1
+            methods: [compute_logits, embed_input_ids]
+            operators: []
+          torch: 2.14.0+cu130
+          vllm: 0.33.0
+          method:
+            collector: PyTorch profiler / Kineto
+            aggregation: device-active interval union per invocation, normalized over
+              calls
+            ownership: CPU launch correlation; CPU durations excluded
+            preparation:
+              weights: vLLM dummy initialization
+              kv: assigned pages initialized before warmup
+              recurrent_state: zero-start
+              queries: deterministic token IDs and explicit request phases
+            iterations: 3
+        measurement:
+          measurement_protocol: pytorch-kineto-device-active-union
+          measurement_sha256: 74451f565c50bc71c77675699b8a5affe6d493cc45bc298780329fbbde5f3910
+        acquisitions:
+        - *id002
+        publication:
+          state: complete
+          csv_sha256: 6f3f2e4ae7385bbdcb8c7c4ca1eabc5391f7e00ef8c5eb399d8e249a2eaafdbf
+      attention:
+        identity: &id003
+          protocol: pytorch-kineto-device-active-union
+          catalog:
+            attention:
+              vllm: Attention
+              within: null
+              not_within: null
+              tp_stable: false
+              occurrences: 1
+              normalization: parent
+          iterations: 3
+          scope_contexts:
+            schema: 1
+            methods: [compute_logits, embed_input_ids]
+            operators: []
+          torch: 2.14.0+cu130
+          vllm: 0.33.0
+          method:
+            collector: PyTorch profiler / Kineto
+            aggregation: device-active interval union per invocation, normalized over
+              calls
+            ownership: CPU launch correlation; CPU durations excluded
+            preparation:
+              weights: vLLM dummy initialization
+              kv: assigned pages initialized before warmup
+              recurrent_state: zero-start
+              queries: deterministic token IDs and explicit request phases
+            iterations: 3
+        measurement:
+          measurement_protocol: pytorch-kineto-device-active-union
+          measurement_sha256: 9914f2549480d1397f9c49f4e8f2e5d1b9aa841e869d0b5d7bb400584593ed7e
+        acquisitions:
+        - *id003
+        publication:
+          state: complete
+          csv_sha256: e5f59efac41cbbf7f7d05fb812daf4e6779a8d6709e38a1aaa407503d7049115
+profiler_version: 1.0.0
+vllm_version: 0.33.0
+cuda_version: '13.0'
+gpu: NVIDIA GeForce RTX 4060 Ti
+hardware: RTX4060Ti
+profiled_at: '2026-11-15T21:40:43+00:00'
+architecture: qwen3
+architecture_sha256: 218a1f0dee83f973b14435e0170283b1e89bebcbd188f4c31f86a80489b73723
+model: Qwen/Qwen3-1.7B
+variant: bf16
+tp_degrees: [1]
+category_provenance:
+  attention:
+    vllm_version: 0.33.0
+    profiled_at: '2026-11-15T21:40:43+00:00'
+  dense:
+    vllm_version: 0.33.0
+    profiled_at: '2026-11-15T21:40:43+00:00'
+  per_sequence:
+    vllm_version: 0.33.0
+    profiled_at: '2026-11-15T21:40:43+00:00'
+engine_effective:
+  load_format: dummy
+  enforce_eager: true
+  skip_tokenizer_init: true
+  enable_prefix_caching: false
+  generation_config: vllm
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.85
+  max_num_batched_tokens: 2048
+  max_num_seqs: 128
+  hf_overrides:
+    num_hidden_layers: 1
+    intermediate_size: 6144
+    num_attention_heads: 16
+    num_key_value_heads: 8
+    vocab_size: 151936
+  max_model_len: 24576
+  worker_extension_cls: profiler.core.hooks.extension.Extension
+  model: /tmp/profiler_model_5ibuocef
+engine_resolved:
+  per_tp:
+    '1':
+      block_size: 16
+      max_model_len: 24576
+      num_cache_tokens: 3188768
+      model_text_config:
+        transformers_version: 5.20.2
+        architectures: [Qwen3ForCausalLM]
+        output_hidden_states: false
+        return_dict: true
+        dtype: bfloat16
+        chunk_size_feed_forward: 0
+        is_encoder_decoder: false
+        id2label:
+          '0': LABEL_0
+          '1': LABEL_1
+        label2id:
+          LABEL_0: 0
+          LABEL_1: 1
+        problem_type: null
+        vocab_size: 151936
+        hidden_size: 2048
+        intermediate_size: 6144
+        num_hidden_layers: 1
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        hidden_act: silu
+        max_position_embeddings: 40960
+        initializer_range: 0.02
+        rms_norm_eps: 1.0e-06
+        use_cache: true
+        tie_word_embeddings: true
+        rope_parameters:
+          rope_theta: 1000000
+          rope_type: default
+        attention_bias: false
+        use_sliding_window: false
+        sliding_window: null
+        max_window_layers: 28
+        layer_types: [full_attention]
+        attention_dropout: 0.0
+        pad_token_id: null
+        bos_token_id: 151643
+        eos_token_id: 151645
+        _name_or_path: /tmp/profiler_model_5ibuocef
+        model_type: qwen3
+        output_attentions: false
+attention_grid:
+  max_kv: 24574
+  chunk_factor: 2.0
+  kv_factor: 2.0
+  n_factor: 1.4142135623730951
+  scope: geometric base; per_tp sampling adds pure-regime capture coordinates
+  axes: prefill_tokens,prefill_key,n_decode,kv_decode
+  chunks: 0, 16-2048 x2
+  n_decode: [0, 1, 2, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128]
+  kv: 0, 16-24574 x2
+  prefill_key: 0, 16-25598 x2
+  decode_q_lens: [1]
+measurement_iterations: 3
+skew_fit:
+  enabled: false
+  per_tp: {}
