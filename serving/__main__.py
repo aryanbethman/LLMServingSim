@@ -526,6 +526,9 @@ def main():
                         help='how the accepted count is drawn: FIXED (default, every draft '
                         'position at the pooled rate), DECAY (per-position rates, which fall with '
                         'draft position -- same mean, different spread), CUSTOM (user-defined)')
+    parser.add_argument('--profile-variant', type=str, default=None,
+                        help='pin profile lookups to perf/<hw>/<model>/<VARIANT>/ instead of deriving the '
+                        'folder from the checkpoint dtype (e.g. a calibrated projection such as bf16-tp4proj)')
     parser.add_argument('--request-routing-policy', type=str, choices=['LOAD', 'RR', 'RAND', 'CUSTOM'], default='LOAD',
                         help='request routing policy across instances: LOAD (vLLM-style weighted least-loaded, default), '
                         'RR (round-robin), RAND (random), CUSTOM (requires implementing '
@@ -652,6 +655,9 @@ def main():
                         help="use ASTRA-Sim's compact completion messages")
 
     args = parser.parse_args()
+    if args.profile_variant:  # before any trace is generated, so no lookup can race it
+        from serving.core import trace_generator as _trace_generator
+        _trace_generator.set_profile_variant_override(args.profile_variant)
     shared_templates = args.execution_template_mode == "shared-template"
     if args.template_cache_max_entries < 1:
         parser.error("--template-cache-max-entries must be positive")

@@ -56,8 +56,33 @@ def _short_dtype(d):
     return _DTYPE_SHORT.get(str(d), str(d))
 
 
+# Set once at startup by ``--profile-variant`` and never reassigned during a
+# run. Uncertainty bundles (a calibrated projection's arms, e.g. bf16-tp4proj)
+# live in sibling variant folders that the checkpoint's dtype cannot name, and
+# choosing between them per batch would mix two profiles into one result, so the
+# selection is process-wide.
+_PROFILE_VARIANT_OVERRIDE = None
+
+
+def set_profile_variant_override(name):
+    """Pin every profile lookup to one variant folder (perf/<hw>/<model>/<name>/).
+
+    Called once by ``serving/__main__.py`` when ``--profile-variant`` is given
+    (and by augur); read by ``resolve_variant``. Setting the same name again is
+    a no-op; a different one raises rather than let a run straddle two bundles.
+    """
+    global _PROFILE_VARIANT_OVERRIDE
+    if _PROFILE_VARIANT_OVERRIDE is not None and name != _PROFILE_VARIANT_OVERRIDE:
+        raise RuntimeError(f"profile variant already pinned to {_PROFILE_VARIANT_OVERRIDE!r}; "
+                           f"refusing to switch to {name!r} mid-run")
+    _PROFILE_VARIANT_OVERRIDE = name
+
+
 def resolve_variant(model_config):
     """The profiler's variant folder name for a checkpoint.
+
+    An explicit ``--profile-variant`` (``set_profile_variant_override``) wins
+    over the derivation below.
 
     A pure function of the model config, because both dtypes it is built from
     are. Neither is a runtime choice any more: ``config_weight_dtype`` and
@@ -71,6 +96,8 @@ def resolve_variant(model_config):
     one: it reads the folder the checkpoint names, and says so loudly when
     that folder is missing.
     """
+    if _PROFILE_VARIANT_OVERRIDE is not None:
+        return _PROFILE_VARIANT_OVERRIDE
     weight = config_weight_dtype(model_config)
     parts = [_short_dtype(weight) if weight else "default"]
     kv_cache_dtype = config_kv_cache_dtype(model_config)
