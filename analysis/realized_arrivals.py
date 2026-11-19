@@ -17,8 +17,13 @@ per-request CSV to the workload it ran and reports:
   arrivals and imbalance;
 * TTFT, queuing delay and latency percentiles.
 
-Request ids follow the workload file: rows in order, a session's calls
-consecutive. That holds when the simulator loaded every row.
+LLMServingSim request ids follow the workload file: rows in order, a session's
+calls consecutive. That holds when the simulator loaded every row. augur numbers
+requests in release order instead, but its CSV carries ``session_id`` and
+``sub_request_index`` columns (a session's id is its row's ``session_id``, else
+``session_<row>``); when they are present the join uses (session, index). A flat
+(non-session) row has no session id; those rows pair with the rows that have an
+empty session id, in request-id order.
 
 Usage:
     python analysis/realized_arrivals.py requests.csv sessions.jsonl \
@@ -43,7 +48,7 @@ def load_requests(path: Path) -> dict[int, dict]:
     out = {}
     with path.open(newline="") as handle:
         for row in csv.DictReader(handle):
-            out[int(row["request id"])] = {
+            record = {
                 "instance": int(row["instance id"]),
                 "arrival": int(row["arrival"]),
                 "end": int(row["end_time"]),
@@ -51,6 +56,10 @@ def load_requests(path: Path) -> dict[int, dict]:
                 "queuing": int(row["queuing_delay"]),
                 "ttft": int(row["TTFT"]),
             }
+            if "session_id" in row and "sub_request_index" in row:  # augur's extra columns
+                record["session_id"] = row["session_id"]
+                record["index"] = int(row["sub_request_index"])
+            out[int(row["request id"])] = record
     return out
 
 
@@ -60,7 +69,12 @@ def load_workload(path: Path) -> list[dict]:
 
 
 def join(requests: dict[int, dict], workload: list[dict]) -> list[list[dict]]:
-    """Per workload row, its calls in order, each the CSV record plus the call's tool delay."""
+    """Per workload row, its calls in order, each the CSV record plus the call's tool delay.
+
+    Records with a session id (augur) are matched on (session, call index);
+    otherwise a request id is the call's position in the workload file."""
+    if any("session_id" in r for r in requests.values()):
+        return _join_by_session(requests, workload)
     sessions, next_id = [], 0
     for row in workload:
         calls = row.get("sub_requests") or [row]
@@ -73,6 +87,37 @@ def join(requests: dict[int, dict], workload: list[dict]) -> list[list[dict]]:
         sessions.append(joined)
     if next_id != len(requests):
         raise ValueError(f"simulator output has {len(requests)} requests, workload {next_id}")
+    return sessions
+
+
+def _join_by_session(requests: dict[int, dict], workload: list[dict]) -> list[list[dict]]:
+    by_key, flat = {}, []
+    for rid in sorted(requests):
+        r = requests[rid]
+        if r.get("session_id"):
+            if (r["session_id"], r["index"]) in by_key:
+                raise ValueError(f"session {r['session_id']!r} call {r['index']} appears twice in the simulator output")
+            by_key[(r["session_id"], r["index"])] = r
+        else:
+            flat.append(r)
+    sessions, used, flat_at = [], 0, 0
+    for line_no, row in enumerate(workload):
+        if "sub_requests" in row:
+            sid = str(row.get("session_id", f"session_{line_no}"))
+            joined = []
+            for i, call in enumerate(row["sub_requests"]):
+                if (sid, i) not in by_key:
+                    raise ValueError(f"call {sid}#{i} is missing from the simulator output")
+                joined.append(dict(by_key[(sid, i)], tool=int(call.get("tool_duration_ns", 0))))
+                used += 1
+            sessions.append(joined)
+        else:
+            if flat_at >= len(flat):
+                raise ValueError(f"flat row {line_no} is missing from the simulator output")
+            sessions.append([dict(flat[flat_at], tool=int(row.get("tool_duration_ns", 0)))])
+            flat_at += 1
+    if used != len(by_key) or flat_at != len(flat):
+        raise ValueError(f"simulator output has {len(requests)} requests, workload {used + flat_at}")
     return sessions
 
 

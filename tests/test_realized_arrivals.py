@@ -31,6 +31,38 @@ class JoinTests(unittest.TestCase):
         self.assertEqual([len(s) for s in sessions], [2, 1, 2])
         self.assertEqual([c["tool"] for c in sessions[2]], [2 * S, 0])
 
+    def test_augur_csv_joins_on_session_and_index(self):
+        # augur numbers requests in release order, not file order: here by arrival.
+        order = sorted(ROWS, key=lambda rid: (ROWS[rid][1], rid))
+        sid = {0: ("a", 0), 1: ("a", 1), 2: ("", 0), 3: ("b", 0), 4: ("b", 1)}
+        augur = {}
+        for new_id, old_id in enumerate(order):
+            augur[new_id] = dict(_requests()[old_id], session_id=sid[old_id][0], index=sid[old_id][1])
+        self.assertNotEqual(list(augur), order)
+        by_position = ra.join(_requests(), WORKLOAD)
+        joined = ra.join(augur, WORKLOAD)
+        strip = lambda cs: [{k: v for k, v in c.items() if k not in ("session_id", "index")} for c in cs]
+        self.assertEqual([strip(s) for s in joined], by_position)
+        report = ra.analyze(joined, spec_rate=0.5, replicas=2)
+        self.assertEqual(report["closed_loop_mismatches"], 0)
+        # a call missing, or a call the workload does not have
+        with self.assertRaises(ValueError):
+            ra.join({k: v for k, v in augur.items() if v["session_id"] != "b" or v["index"] == 0}, WORKLOAD)
+        with self.assertRaises(ValueError):
+            ra.join({**augur, 9: dict(augur[0], session_id="a", index=5)}, WORKLOAD)
+
+    def test_augur_csv_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.csv"
+            with path.open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["instance id", "request id", "model", "input", "output", "arrival",
+                                 "end_time", "latency", "queuing_delay", "TTFT", "TPOT", "ITL",
+                                 "session_id", "sub_request_index", "cached_tokens", "num_preemptions", "prefill_done"])
+                writer.writerow([2, 7, "m", 10, 1, 5, 9, 4, 1, 2, 0, "[]", "s", 3, 0, 0, ""])
+            self.assertEqual(ra.load_requests(path)[7]["session_id"], "s")
+            self.assertEqual(ra.load_requests(path)[7]["index"], 3)
+
     def test_missing_or_extra_requests(self):
         rows = dict(ROWS)
         del rows[4]
